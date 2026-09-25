@@ -243,6 +243,7 @@
     table.grid input.cell:focus { background: #1e2a3d; }
     table.grid input.cell.is-formula { color: var(--formula); }
     table.grid input.cell.is-script { color: #34d399; }
+    table.grid input.cell.is-sql { color: #38bdf8; }
     table.grid input.cell.is-error { color: var(--danger); }
     table.grid .col-header-inner {
       display: flex;
@@ -551,14 +552,16 @@
       <div class="fx-bar" id="fxBar" style="display:none">
         <span class="fx-label">ƒx</span>
         <span class="fx-ref" id="fxRef">—</span>
-        <input id="fxInput" placeholder="Value, =formula, or script= JS  e.g. =SUM(A1:A10) · script=cell('A1')*2" spellcheck="false">
+        <input id="fxInput" placeholder="Value · =formula · script=JS · sql=SELECT …" spellcheck="false">
       </div>
       <div class="grid-area" id="gridArea">
         <div class="grid-wrap" id="gridWrap"></div>
         <div class="empty" id="emptyState">
           <h2>Welcome to SQLSheet</h2>
-          <p>SQLite database + Excel-style spreadsheet with formulas.<br>
-            Type <code style="color:var(--formula)">=SUM(A1:A10)</code>, <code style="color:var(--formula)">=B2*C2</code>, <code style="color:var(--formula)">=IF(A1&gt;0,"Yes","No")</code> in any cell.</p>
+          <p>SQLite database + spreadsheet formulas.<br>
+            <code style="color:var(--formula)">=SUM(A1:A10)</code> ·
+            <code style="color:#34d399">script=cell('A1')*2</code> ·
+            <code style="color:#38bdf8">sql=SELECT COUNT(*) FROM employees</code></p>
           <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center">
             <button class="btn primary" id="btnEmptyNewTable">Create first table</button>
             <button class="btn" id="btnEmptyOpen">Import SQLite file</button>
@@ -567,8 +570,7 @@
         </div>
       </div>
       <div class="help-hint" id="helpHint" style="display:none" title="Click for full formula help">
-        ƒx Help — Formulas: =A1+B1 · =SUM(A1:A10) · =Table!A1 &nbsp;|&nbsp;
-        JS: script=cell('A1')+cell('B1') · script=SUM(range('A1:A10')) · click for full reference
+        ƒx Help — =A1+B1 · script=cell('A1')*2 · sql=SELECT SUM(salary) FROM employees · click for full reference
       </div>
       <div class="sql-panel" id="sqlPanel">
         <div class="sql-header" id="sqlToggle">
@@ -677,15 +679,19 @@
     };
 
     function isFormula(v) {
-      return typeof v === 'string' && v.trim().startsWith('=') && !isScript(v);
+      return typeof v === 'string' && v.trim().startsWith('=') && !isScript(v) && !isSql(v);
     }
 
     function isScript(v) {
       return typeof v === 'string' && /^\s*script\s*=/i.test(v);
     }
 
+    function isSql(v) {
+      return typeof v === 'string' && /^\s*sql\s*=/i.test(v);
+    }
+
     function isComputed(v) {
-      return isFormula(v) || isScript(v);
+      return isFormula(v) || isScript(v) || isSql(v);
     }
 
     function parseNumber(v) {
@@ -809,7 +815,70 @@
       }
     }
 
+    // Evaluate sql= cell. Runs against the in-memory SQLite DB.
+    // Returns first column of first row for SELECT; "OK" / rows message for others.
+    // Placeholders: {{A1}} or {{Table!B2}} → cell value (quoted if text).
+    function evaluateSql(src, rowIdx, colIdx, tableName) {
+      let sql = String(src).replace(/^\s*sql\s*=/i, '').trim();
+      if (!sql) return null;
+      if (!db) return '#SQL! no database';
+
+      try {
+        const { getCellValue } = makeSheetAccessors();
+        sql = sql.replace(/\{\{\s*([^}]+?)\s*\}\}/g, (_, refRaw) => {
+          const ref = String(refRaw).trim();
+          let table = tableName || currentTable;
+          let cellRef = ref;
+          const bang = ref.indexOf('!');
+          if (bang > 0) {
+            table = ref.slice(0, bang);
+            cellRef = ref.slice(bang + 1);
+          }
+          let v;
+          try {
+            v = getCellValue(cellRef.toUpperCase(), table);
+          } catch (_) {
+            v = null;
+          }
+          if (v === null || v === undefined) return 'NULL';
+          if (typeof v === 'number' && isFinite(v)) return String(v);
+          if (typeof v === 'boolean') return v ? '1' : '0';
+          // Quote text; escape single quotes
+          return "'" + String(v).replace(/'/g, "''") + "'";
+        });
+
+        const results = db.exec(sql);
+        // DML / DDL with no result set
+        if (!results.length) {
+          let changes = 0;
+          try { changes = db.getRowsModified(); } catch (_) {}
+          return changes ? ('OK (' + changes + ')') : 'OK';
+        }
+        const rows = results[0].values;
+        if (!rows.length) return null;
+        const first = rows[0];
+        // Single cell
+        if (first.length === 1) {
+          const v = first[0];
+          return v === null || v === undefined ? null : v;
+        }
+        // One row, many cols → join
+        if (rows.length === 1) {
+          return first.map(v => (v == null ? '' : String(v))).join(' | ');
+        }
+        // Many rows: if single column, could join; else first cell only + note
+        if (results[0].columns.length === 1) {
+          return rows.map(r => (r[0] == null ? '' : String(r[0]))).join(', ');
+        }
+        return first[0] == null ? null : first[0];
+      } catch (e) {
+        const msg = (e && e.message) ? e.message : String(e);
+        return '#SQL! ' + msg.replace(/\s+/g, ' ').slice(0, 120);
+      }
+    }
+
     function computeCellValue(raw, rowIdx, colIdx, tableName) {
+      if (isSql(raw)) return evaluateSql(raw, rowIdx, colIdx, tableName);
       if (isScript(raw)) return evaluateScript(raw, rowIdx, colIdx, tableName);
       if (isFormula(raw)) return evaluateFormula(raw);
       return raw;
@@ -1307,7 +1376,9 @@
             gridData = loadTableGrid(info.table);
           }
           let result;
-          if (isScript(raw)) {
+          if (isSql(raw)) {
+            result = evaluateSql(raw, info.rowIdx, info.colIdx, info.table);
+          } else if (isScript(raw)) {
             result = evaluateScript(raw, info.rowIdx, info.colIdx, info.table);
           } else {
             const evaluate = createEvaluator(getCellValue, getRangeValues);
@@ -1511,17 +1582,18 @@
             const raw = row.values[ci];
             const letter = colIndexToLetter(ci);
             const ref = letter + (ri + 1);
-            let display, isF = false, isS = false, isErr = false;
+            let display, isF = false, isS = false, isQ = false, isErr = false;
             if (isComputed(raw)) {
               isF = isFormula(raw);
               isS = isScript(raw);
+              isQ = isSql(raw);
               const computed = computeCellValue(raw, ri, ci, currentTable);
               display = formatDisplay(computed);
               isErr = typeof computed === 'string' && String(computed).startsWith('#');
             } else {
               display = raw === null || raw === undefined ? '' : String(raw);
             }
-            const cls = [isF ? 'is-formula' : '', isS ? 'is-script' : '', isErr ? 'is-error' : ''].filter(Boolean).join(' ');
+            const cls = [isF ? 'is-formula' : '', isS ? 'is-script' : '', isQ ? 'is-sql' : '', isErr ? 'is-error' : ''].filter(Boolean).join(' ');
             html += `<td data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}">
               <input class="cell ${cls}" value="${escapeHtml(display)}"
                      data-raw="${escapeHtml(raw ?? '')}"
@@ -1561,6 +1633,7 @@
             inp.value = inp.dataset.raw;
             if (isFormula(inp.dataset.raw)) inp.classList.add('is-formula');
             if (isScript(inp.dataset.raw)) inp.classList.add('is-script');
+            if (isSql(inp.dataset.raw)) inp.classList.add('is-sql');
           }
         });
 
@@ -2123,21 +2196,23 @@
               <button type="button" data-tab="ops">Operators</button>
               <button type="button" data-tab="funcs">Functions</button>
               <button type="button" data-tab="script">script= JS</button>
+              <button type="button" data-tab="sql">sql= SQL</button>
               <button type="button" data-tab="errors">Errors</button>
               <button type="button" data-tab="examples">Examples</button>
             </div>
 
             <div class="help-section active" data-section="overview">
-              <h4>Two cell formula types</h4>
+              <h4>Three computed cell types</h4>
               <table>
                 <tr><th>Prefix</th><th>Color</th><th>Meaning</th></tr>
                 <tr><td><code>=…</code></td><td>Purple</td><td>Excel-style formula (parsed expression)</td></tr>
                 <tr><td><code class="script">script=…</code></td><td>Green</td><td>JavaScript expression or statements</td></tr>
+                <tr><td><code style="color:#38bdf8">sql=…</code></td><td>Cyan</td><td>SQLite query against the current database</td></tr>
               </table>
-              <p>Plain values (numbers/text) are stored as-is. Formulas and scripts are stored as text and recalculated when the grid refreshes.</p>
-              <p>Use the <strong>ƒx</strong> bar to edit the raw formula/script. <strong>ƒx Recalc</strong> forces a full recalculation.</p>
+              <p>Plain values (numbers/text) are stored as-is. Computed cells are stored as text and recalculated when the grid refreshes.</p>
+              <p>Use the <strong>ƒx</strong> bar to edit the raw content. <strong>ƒx Recalc</strong> forces a full recalculation.</p>
               <h4>Where to type</h4>
-              <p>Click a cell (or the ƒx bar), type <code>=A1+B1</code> or <code class="script">script=cell('A1')+cell('B1')</code>, press Enter.</p>
+              <p>Click a cell (or the ƒx bar), type <code>=A1+B1</code>, <code class="script">script=cell('A1')*2</code>, or <code style="color:#38bdf8">sql=SELECT COUNT(*) FROM employees</code>, press Enter.</p>
             </div>
 
             <div class="help-section" data-section="refs">
@@ -2239,6 +2314,30 @@
               <p>Scripts run in a limited function scope (not full page <code>window</code>). Errors show as <code>#JS! …</code>.</p>
             </div>
 
+            <div class="help-section" data-section="sql">
+              <h4>SQL cells</h4>
+              <p>Start with <code style="color:#38bdf8">sql=</code>. The rest is executed on the current SQLite database (same engine as the SQL console).</p>
+              <table>
+                <tr><th>Result shape</th><th>Cell displays</th></tr>
+                <tr><td>SELECT, 1 row × 1 col</td><td>That scalar value</td></tr>
+                <tr><td>SELECT, 1 row × many cols</td><td>Values joined with <code> | </code></td></tr>
+                <tr><td>SELECT, many rows × 1 col</td><td>Values joined with <code>, </code></td></tr>
+                <tr><td>SELECT, empty</td><td>Blank</td></tr>
+                <tr><td>INSERT/UPDATE/DELETE/DDL</td><td><code>OK</code> or <code>OK (n)</code> rows changed</td></tr>
+              </table>
+              <h4>Cell placeholders in SQL</h4>
+              <p>Use <code>{{A1}}</code> or <code>{{Table!B2}}</code> to inject the evaluated value of a spreadsheet cell (numbers unquoted, text quoted/escaped, empty → NULL).</p>
+              <table>
+                <tr><th>Example</th><th>Meaning</th></tr>
+                <tr><td><code style="color:#38bdf8">sql=SELECT SUM(salary) FROM employees</code></td><td>Aggregate</td></tr>
+                <tr><td><code style="color:#38bdf8">sql=SELECT COUNT(*) FROM orders WHERE status='pending'</code></td><td>Filter</td></tr>
+                <tr><td><code style="color:#38bdf8">sql=SELECT unit_price FROM products WHERE sku='HW-100'</code></td><td>Lookup</td></tr>
+                <tr><td><code style="color:#38bdf8">sql=SELECT name FROM departments WHERE dept_id={{A1}}</code></td><td>Use cell A1 as id</td></tr>
+                <tr><td><code style="color:#38bdf8">sql=SELECT ROUND(AVG(salary),0) FROM employees WHERE active=1</code></td><td>Avg active pay</td></tr>
+              </table>
+              <p>Prefer SELECT for pure display cells. DML/DDL from a cell will mutate the DB (then refresh the grid).</p>
+            </div>
+
             <div class="help-section" data-section="errors">
               <h4>Error codes</h4>
               <table>
@@ -2249,6 +2348,7 @@
                 <tr><td><code>#NAME?</code></td><td>Unknown function or parse error</td></tr>
                 <tr><td><code>#NUM!</code></td><td>Non-finite number (script)</td></tr>
                 <tr><td><code>#JS! …</code></td><td>JavaScript exception in <code class="script">script=</code></td></tr>
+                <tr><td><code>#SQL! …</code></td><td>SQLite error in <code style="color:#38bdf8">sql=</code></td></tr>
                 <tr><td><code>#ERROR!</code></td><td>Other evaluation failure</td></tr>
               </table>
             </div>
@@ -2262,6 +2362,13 @@
                 <tr><td>Dept budget</td><td><code>=departments!C1</code></td></tr>
                 <tr><td>Payroll total</td><td><code>=SUM(employees!F1:F11)</code></td></tr>
                 <tr><td>Over budget?</td><td><code>=IF(SUM(employees!F1:F11)&gt;departments!C1,"Over","Under")</code></td></tr>
+              </table>
+              <h4>sql=</h4>
+              <table>
+                <tr><th>Goal</th><th>Cell</th></tr>
+                <tr><td>Total pay</td><td><code style="color:#38bdf8">sql=SELECT SUM(salary) FROM employees WHERE active=1</code></td></tr>
+                <tr><td>Pending orders</td><td><code style="color:#38bdf8">sql=SELECT COUNT(*) FROM orders WHERE status='pending'</code></td></tr>
+                <tr><td>Lookup by cell</td><td><code style="color:#38bdf8">sql=SELECT name FROM products WHERE product_id={{A1}}</code></td></tr>
               </table>
               <h4>Mixed with SQL</h4>
               <p>Use the SQL console for joins/aggregates; save results as a table; then use <code>=</code> or <code class="script">script=</code> on that sheet for spreadsheet math.</p>
