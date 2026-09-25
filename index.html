@@ -242,6 +242,7 @@
     }
     table.grid input.cell:focus { background: #1e2a3d; }
     table.grid input.cell.is-formula { color: var(--formula); }
+    table.grid input.cell.is-script { color: #34d399; }
     table.grid input.cell.is-error { color: var(--danger); }
     table.grid .col-header-inner {
       display: flex;
@@ -423,7 +424,92 @@
       padding: 4px 12px;
       border-top: 1px solid var(--border);
       background: var(--surface);
+      cursor: pointer;
     }
+    .help-hint:hover { color: var(--text); background: var(--surface2); }
+    .help-modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      width: min(720px, 94vw);
+      max-height: min(88vh, 900px);
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 50px rgba(0,0,0,.5);
+    }
+    .help-modal-header {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-shrink: 0;
+    }
+    .help-modal-header h3 { font-size: 16px; flex: 1; margin: 0; }
+    .help-modal-body {
+      padding: 12px 18px 20px;
+      overflow-y: auto;
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .help-modal-body h4 {
+      margin: 16px 0 8px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--accent);
+    }
+    .help-modal-body h4:first-child { margin-top: 4px; }
+    .help-modal-body p { margin: 0 0 8px; color: var(--text-muted); }
+    .help-modal-body code {
+      font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+      font-size: 12px;
+      background: var(--bg);
+      padding: 1px 5px;
+      border-radius: 3px;
+      color: var(--formula);
+    }
+    .help-modal-body code.script { color: #34d399; }
+    .help-modal-body table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 6px 0 12px;
+      font-size: 12px;
+    }
+    .help-modal-body th, .help-modal-body td {
+      border: 1px solid var(--border);
+      padding: 5px 8px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .help-modal-body th {
+      background: var(--surface2);
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+    .help-modal-body tr:hover td { background: var(--surface2); }
+    .help-tabs {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-bottom: 8px;
+    }
+    .help-tabs button {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 11px;
+      cursor: pointer;
+    }
+    .help-tabs button.active, .help-tabs button:hover {
+      color: var(--text);
+      border-color: var(--accent);
+      background: var(--bg);
+    }
+    .help-section { display: none; }
+    .help-section.active { display: block; }
   </style>
 </head>
 <body>
@@ -459,12 +545,13 @@
         <button class="btn danger" id="btnDelCol" disabled>− Column</button>
         <div class="sep"></div>
         <button class="btn" id="btnRecalc" title="Recalculate all formulas">ƒx Recalc</button>
+        <button class="btn" id="btnFormulaHelp" title="Formula & script help">ƒx Help</button>
         <button class="btn" id="btnDropTable" title="Drop table">Drop Table</button>
       </div>
       <div class="fx-bar" id="fxBar" style="display:none">
         <span class="fx-label">ƒx</span>
         <span class="fx-ref" id="fxRef">—</span>
-        <input id="fxInput" placeholder="Enter value or formula, e.g. =SUM(A1:A10) or =B2*1.1" spellcheck="false">
+        <input id="fxInput" placeholder="Value, =formula, or script= JS  e.g. =SUM(A1:A10) · script=cell('A1')*2" spellcheck="false">
       </div>
       <div class="grid-area" id="gridArea">
         <div class="grid-wrap" id="gridWrap"></div>
@@ -472,14 +559,16 @@
           <h2>Welcome to SQLSheet</h2>
           <p>SQLite database + Excel-style spreadsheet with formulas.<br>
             Type <code style="color:var(--formula)">=SUM(A1:A10)</code>, <code style="color:var(--formula)">=B2*C2</code>, <code style="color:var(--formula)">=IF(A1&gt;0,"Yes","No")</code> in any cell.</p>
-          <div style="display:flex;gap:8px;margin-top:8px">
+          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center">
             <button class="btn primary" id="btnEmptyNewTable">Create first table</button>
             <button class="btn" id="btnEmptyOpen">Import SQLite file</button>
+            <button class="btn" id="btnEmptyHelp">ƒx Formula help</button>
           </div>
         </div>
       </div>
-      <div class="help-hint" id="helpHint" style="display:none">
-        Formulas: =A1+B1 &nbsp;·&nbsp; =SUM(A1:A10) &nbsp;·&nbsp; =Table!A1 &nbsp;·&nbsp; =SUM(orders!B2:B20) &nbsp;·&nbsp; =IF(A1&gt;10,"High","Low") &nbsp;·&nbsp; Functions: SUM AVG COUNT MIN MAX IF ROUND ABS POWER CONCAT LEFT RIGHT LEN UPPER LOWER
+      <div class="help-hint" id="helpHint" style="display:none" title="Click for full formula help">
+        ƒx Help — Formulas: =A1+B1 · =SUM(A1:A10) · =Table!A1 &nbsp;|&nbsp;
+        JS: script=cell('A1')+cell('B1') · script=SUM(range('A1:A10')) · click for full reference
       </div>
       <div class="sql-panel" id="sqlPanel">
         <div class="sql-header" id="sqlToggle">
@@ -588,7 +677,15 @@
     };
 
     function isFormula(v) {
-      return typeof v === 'string' && v.trim().startsWith('=');
+      return typeof v === 'string' && v.trim().startsWith('=') && !isScript(v);
+    }
+
+    function isScript(v) {
+      return typeof v === 'string' && /^\s*script\s*=/i.test(v);
+    }
+
+    function isComputed(v) {
+      return isFormula(v) || isScript(v);
     }
 
     function parseNumber(v) {
@@ -597,6 +694,125 @@
       if (typeof v === 'boolean') return v ? 1 : 0;
       const n = Number(String(v).replace(/,/g, ''));
       return isFinite(n) ? n : null;
+    }
+
+    // Evaluate script= JavaScript cell. Helpers: cell, range, row, col, table, SUM, …
+    function evaluateScript(src, rowIdx, colIdx, tableName) {
+      const body = String(src).replace(/^\s*script\s*=/i, '').trim();
+      if (!body) return null;
+
+      const { getCellValue, getRangeValues } = makeSheetAccessors();
+
+      function cell(ref) {
+        if (ref == null) return null;
+        const s = String(ref).trim();
+        const bang = s.indexOf('!');
+        if (bang > 0) {
+          return getCellValue(s.slice(bang + 1).toUpperCase(), s.slice(0, bang));
+        }
+        // Relative: bare number means same column different row? Keep simple — require A1 style
+        return getCellValue(s.toUpperCase(), tableName || currentTable);
+      }
+
+      function range(a, b) {
+        if (b != null) {
+          // range('A1','B10') or range('t!A1','t!B10')
+          let t1 = tableName || currentTable, r1 = String(a), t2 = t1, r2 = String(b);
+          if (String(a).includes('!')) {
+            const p = String(a).split('!');
+            t1 = p[0]; r1 = p[1];
+          }
+          if (String(b).includes('!')) {
+            const p = String(b).split('!');
+            t2 = p[0]; r2 = p[1];
+          }
+          if (t1 !== t2) throw new Error('Range tables must match');
+          return getRangeValues(r1.toUpperCase(), r2.toUpperCase(), t1);
+        }
+        // range('A1:B10') or range('table!A1:B10')
+        const s = String(a).trim();
+        let table = tableName || currentTable;
+        let spec = s;
+        const bang = s.indexOf('!');
+        if (bang > 0) {
+          table = s.slice(0, bang);
+          spec = s.slice(bang + 1);
+        }
+        const parts = spec.split(':');
+        if (parts.length !== 2) throw new Error('Invalid range');
+        return getRangeValues(parts[0].toUpperCase(), parts[1].toUpperCase(), table);
+      }
+
+      const helpers = {
+        cell, range,
+        row: (rowIdx ?? 0) + 1,
+        col: (colIdx ?? 0) + 1,
+        colLetter: colIndexToLetter(colIdx ?? 0),
+        table: tableName || currentTable,
+        SUM: (...args) => {
+          const flat = args.flat(Infinity).map(parseNumber).filter(n => n !== null);
+          return flat.reduce((a, b) => a + b, 0);
+        },
+        AVERAGE: (...args) => {
+          const flat = args.flat(Infinity).map(parseNumber).filter(n => n !== null);
+          return flat.length ? flat.reduce((a, b) => a + b, 0) / flat.length : null;
+        },
+        MIN: (...args) => {
+          const flat = args.flat(Infinity).map(parseNumber).filter(n => n !== null);
+          return flat.length ? Math.min(...flat) : null;
+        },
+        MAX: (...args) => {
+          const flat = args.flat(Infinity).map(parseNumber).filter(n => n !== null);
+          return flat.length ? Math.max(...flat) : null;
+        },
+        COUNT: (...args) => args.flat(Infinity).map(parseNumber).filter(n => n !== null).length,
+        COUNTA: (...args) => args.flat(Infinity).filter(v => v !== null && v !== '').length,
+        ROUND: (n, d = 0) => {
+          const x = parseNumber(n);
+          if (x === null) return null;
+          const f = Math.pow(10, d);
+          return Math.round(x * f) / f;
+        },
+        ABS: (n) => { const x = parseNumber(n); return x === null ? null : Math.abs(x); },
+        IF: (cond, a, b) => cond ? a : b,
+        CONCAT: (...args) => args.flat(Infinity).map(v => v == null ? '' : String(v)).join(''),
+        Math, Number, String, Array, JSON, parseFloat, parseInt, isFinite, isNaN
+      };
+
+      // Build function body: allow expression or statements with return
+      let code = body;
+      const looksLikeStatements = /(?:^|\n)\s*(return|let |const |var |if\s*\(|for\s*\(|while\s*\()/.test(body)
+        || body.includes(';');
+      if (!looksLikeStatements) {
+        code = 'return (' + body + ');';
+      } else if (!/\breturn\b/.test(body)) {
+        code = body + '\n;return undefined;';
+      }
+
+      try {
+        const fn = new Function(
+          'cell', 'range', 'row', 'col', 'colLetter', 'table',
+          'SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'ROUND', 'ABS', 'IF', 'CONCAT',
+          'Math', 'Number', 'String', 'Array', 'JSON',
+          '"use strict";\n' + code
+        );
+        const result = fn(
+          helpers.cell, helpers.range, helpers.row, helpers.col, helpers.colLetter, helpers.table,
+          helpers.SUM, helpers.AVERAGE, helpers.MIN, helpers.MAX, helpers.COUNT, helpers.COUNTA,
+          helpers.ROUND, helpers.ABS, helpers.IF, helpers.CONCAT,
+          Math, Number, String, Array, JSON
+        );
+        if (typeof result === 'number' && !isFinite(result)) return '#NUM!';
+        return result === undefined ? null : result;
+      } catch (e) {
+        return '#JS!' + (e && e.message ? ' ' + e.message : '');
+      }
+    }
+
+    function computeCellValue(raw, rowIdx, colIdx, tableName) {
+      if (isScript(raw)) return evaluateScript(raw, rowIdx, colIdx, tableName);
+      if (isFormula(raw)) return evaluateFormula(raw);
+      return raw;
     }
 
     // Tokenize formula (without leading =)
@@ -1075,7 +1291,7 @@
         if (!info) return null;
 
         const raw = info.raw;
-        if (!isFormula(raw)) {
+        if (!isComputed(raw)) {
           const n = parseNumber(raw);
           const v = n !== null ? n : (raw === '' || raw == null ? null : raw);
           evalCache.set(key, v);
@@ -1084,17 +1300,20 @@
 
         if (visiting.has(key)) throw new FormulaError('#REF!', 'Circular reference');
         visiting.add(key);
-        // Evaluate in context of the cell's own table so relative refs stay on that sheet
         const savedTable = currentTable;
         try {
           currentTable = info.table;
-          // Ensure gridData points at this table for nested relative refs
           if (info.table !== savedTable) {
             gridData = loadTableGrid(info.table);
           }
-          const evaluate = createEvaluator(getCellValue, getRangeValues);
-          let result = evaluate(raw);
-          if (Array.isArray(result)) result = result[0] ?? null;
+          let result;
+          if (isScript(raw)) {
+            result = evaluateScript(raw, info.rowIdx, info.colIdx, info.table);
+          } else {
+            const evaluate = createEvaluator(getCellValue, getRangeValues);
+            result = evaluate(raw);
+            if (Array.isArray(result)) result = result[0] ?? null;
+          }
           evalCache.set(key, result);
           return result;
         } catch (e) {
@@ -1292,22 +1511,23 @@
             const raw = row.values[ci];
             const letter = colIndexToLetter(ci);
             const ref = letter + (ri + 1);
-            let display, isF = false, isErr = false;
-            if (isFormula(raw)) {
-              isF = true;
-              const computed = evaluateFormula(raw);
+            let display, isF = false, isS = false, isErr = false;
+            if (isComputed(raw)) {
+              isF = isFormula(raw);
+              isS = isScript(raw);
+              const computed = computeCellValue(raw, ri, ci, currentTable);
               display = formatDisplay(computed);
-              isErr = typeof computed === 'string' && computed.startsWith('#');
+              isErr = typeof computed === 'string' && String(computed).startsWith('#');
             } else {
               display = raw === null || raw === undefined ? '' : String(raw);
             }
-            const cls = [isF ? 'is-formula' : '', isErr ? 'is-error' : ''].filter(Boolean).join(' ');
+            const cls = [isF ? 'is-formula' : '', isS ? 'is-script' : '', isErr ? 'is-error' : ''].filter(Boolean).join(' ');
             html += `<td data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}">
               <input class="cell ${cls}" value="${escapeHtml(display)}"
                      data-raw="${escapeHtml(raw ?? '')}"
                      data-rowid="${row.rowid}" data-col="${escapeHtml(colNames[ci])}"
                      data-colidx="${ci}" data-rowidx="${ri}" data-ref="${ref}"
-                     title="${isF ? escapeHtml(raw) : ''}">
+                     title="${isComputed(raw) ? escapeHtml(raw) : ''}">
             </td>`;
           }
           html += '</tr>';
@@ -1328,23 +1548,20 @@
           wrap.querySelectorAll('td.selected').forEach(td => td.classList.remove('selected'));
           inp.closest('td')?.classList.add('selected');
 
-          // Formula bar
+          // Formula / script bar
           document.getElementById('fxRef').textContent = inp.dataset.ref;
           const raw = inp.dataset.raw;
           document.getElementById('fxInput').value = raw;
-          document.getElementById('fxInput').classList.toggle('formula', isFormula(raw));
+          document.getElementById('fxInput').classList.toggle('formula', isComputed(raw));
         });
 
-        // On focus show raw formula for editing
+        // On focus show raw formula/script for editing
         inp.addEventListener('focus', () => {
-          if (isFormula(inp.dataset.raw)) {
+          if (isComputed(inp.dataset.raw)) {
             inp.value = inp.dataset.raw;
-            inp.classList.add('is-formula');
+            if (isFormula(inp.dataset.raw)) inp.classList.add('is-formula');
+            if (isScript(inp.dataset.raw)) inp.classList.add('is-script');
           }
-        });
-
-        inp.addEventListener('blur', () => {
-          // after edit, value is already committed via change
         });
 
         inp.addEventListener('change', () => {
@@ -1356,13 +1573,12 @@
             e.preventDefault();
             inp.blur();
             commitCell(inp);
-            // move down
             const next = document.querySelector(
               `input.cell[data-rowidx="${selectedRowIdx + 1}"][data-colidx="${selectedColIdx}"]`
             );
             next?.focus();
           } else if (e.key === 'Escape') {
-            inp.value = isFormula(inp.dataset.raw) ? inp.dataset.raw : (inp.dataset.raw || '');
+            inp.value = isComputed(inp.dataset.raw) ? inp.dataset.raw : (inp.dataset.raw || '');
             inp.blur();
           }
         });
@@ -1399,16 +1615,14 @@
       const col = inp.dataset.col;
       try {
         let store = raw;
-        // Keep formula as-is; otherwise try number
-        if (!isFormula(raw) && raw !== '' && !isNaN(raw) && String(raw).trim() !== '') {
+        // Keep formulas/scripts as text; otherwise try number
+        if (!isComputed(raw) && raw !== '' && !isNaN(raw) && String(raw).trim() !== '') {
           store = Number(raw);
         } else if (raw === '') {
           store = null;
         }
         db.run(`UPDATE ${quoteIdent(currentTable)} SET ${quoteIdent(col)} = ? WHERE rowid = ?`, [store, rowid]);
-        // Full recalc because dependencies may exist
         renderGrid();
-        // restore selection
         const ref = inp.dataset.ref;
         const again = document.querySelector(`input.cell[data-ref="${ref}"]`);
         if (again) {
@@ -1436,7 +1650,7 @@
       const raw = document.getElementById('fxInput').value;
       try {
         let store = raw;
-        if (!isFormula(raw) && raw !== '' && !isNaN(raw) && String(raw).trim() !== '') {
+        if (!isComputed(raw) && raw !== '' && !isNaN(raw) && String(raw).trim() !== '') {
           store = Number(raw);
         } else if (raw === '') store = null;
         db.run(`UPDATE ${quoteIdent(currentTable)} SET ${quoteIdent(selectedCol)} = ? WHERE rowid = ?`, [store, selectedRow]);
@@ -1839,8 +2053,8 @@
         let csv = colNames.map(esc).join(',') + '\n';
         rows.forEach((row, ri) => {
           const vals = row.values.map((raw, ci) => {
-            if (isFormula(raw)) {
-              return formatDisplay(evaluateFormula(raw));
+            if (isComputed(raw)) {
+              return formatDisplay(computeCellValue(raw, ri, ci, currentTable));
             }
             return raw;
           });
@@ -1891,6 +2105,190 @@
         overlay.remove();
         onOk(vals);
       };
+    }
+
+    function showFormulaHelp() {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      overlay.innerHTML = `
+        <div class="help-modal" role="dialog" aria-label="Formula help">
+          <div class="help-modal-header">
+            <h3>Formula &amp; script reference</h3>
+            <button type="button" class="btn" id="helpClose">Close</button>
+          </div>
+          <div class="help-modal-body">
+            <div class="help-tabs" id="helpTabs">
+              <button type="button" data-tab="overview" class="active">Overview</button>
+              <button type="button" data-tab="refs">Cell refs</button>
+              <button type="button" data-tab="ops">Operators</button>
+              <button type="button" data-tab="funcs">Functions</button>
+              <button type="button" data-tab="script">script= JS</button>
+              <button type="button" data-tab="errors">Errors</button>
+              <button type="button" data-tab="examples">Examples</button>
+            </div>
+
+            <div class="help-section active" data-section="overview">
+              <h4>Two cell formula types</h4>
+              <table>
+                <tr><th>Prefix</th><th>Color</th><th>Meaning</th></tr>
+                <tr><td><code>=…</code></td><td>Purple</td><td>Excel-style formula (parsed expression)</td></tr>
+                <tr><td><code class="script">script=…</code></td><td>Green</td><td>JavaScript expression or statements</td></tr>
+              </table>
+              <p>Plain values (numbers/text) are stored as-is. Formulas and scripts are stored as text and recalculated when the grid refreshes.</p>
+              <p>Use the <strong>ƒx</strong> bar to edit the raw formula/script. <strong>ƒx Recalc</strong> forces a full recalculation.</p>
+              <h4>Where to type</h4>
+              <p>Click a cell (or the ƒx bar), type <code>=A1+B1</code> or <code class="script">script=cell('A1')+cell('B1')</code>, press Enter.</p>
+            </div>
+
+            <div class="help-section" data-section="refs">
+              <h4>Cell &amp; range references (= formulas)</h4>
+              <table>
+                <tr><th>Syntax</th><th>Meaning</th></tr>
+                <tr><td><code>A1</code></td><td>Column A, row 1 on the <em>current</em> table</td></tr>
+                <tr><td><code>B2:D10</code></td><td>Rectangular range</td></tr>
+                <tr><td><code>A:A</code> or <code>B:D</code></td><td>Whole column(s)</td></tr>
+                <tr><td><code>Table!A1</code></td><td>Cell on another table (case-insensitive name)</td></tr>
+                <tr><td><code>orders!B2:B20</code></td><td>Range on another table</td></tr>
+                <tr><td><code>products!E:E</code></td><td>Whole column on another table</td></tr>
+              </table>
+              <p>Column letters are <strong>positional</strong>: A = first column, B = second, … (independent of column display names).</p>
+              <p>Row numbers are 1-based and match the # column in the grid.</p>
+            </div>
+
+            <div class="help-section" data-section="ops">
+              <h4>Arithmetic</h4>
+              <table>
+                <tr><th>Op</th><th>Example</th><th>Notes</th></tr>
+                <tr><td><code>+</code> <code>-</code> <code>*</code> <code>/</code></td><td><code>=A1*B1+C1</code></td><td>Standard precedence</td></tr>
+                <tr><td><code>^</code></td><td><code>=2^8</code></td><td>Power</td></tr>
+                <tr><td><code>%</code></td><td><code>=A1%B1</code></td><td>Modulo</td></tr>
+                <tr><td>unary <code>-</code></td><td><code>=-A1</code></td><td>Negation</td></tr>
+              </table>
+              <h4>Comparison</h4>
+              <table>
+                <tr><th>Op</th><th>Example</th></tr>
+                <tr><td><code>=</code> <code>&lt;&gt;</code> <code>&lt;</code> <code>&gt;</code> <code>&lt;=</code> <code>&gt;=</code></td>
+                    <td><code>=IF(A1&gt;=10,"Yes","No")</code></td></tr>
+              </table>
+              <h4>Strings &amp; numbers</h4>
+              <p>Literals: <code>123</code>, <code>"hello"</code>. <code>+</code> concatenates if either side is non-numeric text.</p>
+            </div>
+
+            <div class="help-section" data-section="funcs">
+              <h4>Aggregate</h4>
+              <table>
+                <tr><th>Function</th><th>Example</th><th>Description</th></tr>
+                <tr><td><code>SUM</code></td><td><code>=SUM(A1:A10)</code></td><td>Sum of numbers</td></tr>
+                <tr><td><code>AVERAGE</code> / <code>AVG</code></td><td><code>=AVERAGE(B:B)</code></td><td>Mean of numbers</td></tr>
+                <tr><td><code>MIN</code> / <code>MAX</code></td><td><code>=MAX(C1:C5)</code></td><td>Minimum / maximum</td></tr>
+                <tr><td><code>COUNT</code></td><td><code>=COUNT(A1:A10)</code></td><td>Count of numeric values</td></tr>
+                <tr><td><code>COUNTA</code></td><td><code>=COUNTA(A1:A10)</code></td><td>Count of non-empty values</td></tr>
+              </table>
+              <h4>Logic</h4>
+              <table>
+                <tr><th>Function</th><th>Example</th></tr>
+                <tr><td><code>IF(cond, then, else)</code></td><td><code>=IF(A1&gt;0,"Yes","No")</code></td></tr>
+                <tr><td><code>AND(...)</code></td><td><code>=AND(A1&gt;0,B1&gt;0)</code></td></tr>
+                <tr><td><code>OR(...)</code></td><td><code>=OR(A1=1,A1=2)</code></td></tr>
+                <tr><td><code>NOT(x)</code></td><td><code>=NOT(A1=0)</code></td></tr>
+              </table>
+              <h4>Math</h4>
+              <table>
+                <tr><th>Function</th><th>Example</th></tr>
+                <tr><td><code>ROUND(n, digits)</code></td><td><code>=ROUND(A1/B1,2)</code></td></tr>
+                <tr><td><code>ABS(n)</code></td><td><code>=ABS(A1-B1)</code></td></tr>
+                <tr><td><code>SQRT(n)</code></td><td><code>=SQRT(A1)</code></td></tr>
+                <tr><td><code>POWER(a,b)</code> / <code>POW</code></td><td><code>=POWER(2,10)</code></td></tr>
+              </table>
+              <h4>Text</h4>
+              <table>
+                <tr><th>Function</th><th>Example</th></tr>
+                <tr><td><code>CONCAT</code> / <code>CONCATENATE</code></td><td><code>=CONCAT(A1," ",B1)</code></td></tr>
+                <tr><td><code>LEFT(s,n)</code> / <code>RIGHT(s,n)</code></td><td><code>=LEFT(A1,3)</code></td></tr>
+                <tr><td><code>LEN</code> / <code>LENGTH</code></td><td><code>=LEN(A1)</code></td></tr>
+                <tr><td><code>UPPER</code> / <code>LOWER</code></td><td><code>=UPPER(A1)</code></td></tr>
+                <tr><td><code>VALUE(s)</code></td><td><code>=VALUE("42")</code></td></tr>
+              </table>
+              <p>Functions can nest: <code>=IF(SUM(A1:A5)&gt;100,AVERAGE(B1:B5),0)</code></p>
+            </div>
+
+            <div class="help-section" data-section="script">
+              <h4>JavaScript cells</h4>
+              <p>Start the cell with <code class="script">script=</code>. A single expression is auto-returned; use <code>return</code> for multi-statement bodies.</p>
+              <table>
+                <tr><th>Helper</th><th>Example</th><th>Description</th></tr>
+                <tr><td><code class="script">cell(ref)</code></td><td><code class="script">cell('A1')</code> · <code class="script">cell('t!B2')</code></td><td>Resolved cell value</td></tr>
+                <tr><td><code class="script">range(spec)</code></td><td><code class="script">range('A1:B10')</code></td><td>Array of values</td></tr>
+                <tr><td><code class="script">range(a,b)</code></td><td><code class="script">range('A1','B10')</code></td><td>Two-corner range</td></tr>
+                <tr><td><code class="script">row</code> <code class="script">col</code></td><td><code class="script">return row*10</code></td><td>1-based position</td></tr>
+                <tr><td><code class="script">colLetter</code> <code class="script">table</code></td><td><code class="script">table</code></td><td>Current column letter / table name</td></tr>
+                <tr><td><code class="script">SUM</code> <code class="script">AVERAGE</code> …</td><td><code class="script">SUM(range('A:A'))</code></td><td>Same aggregates as formulas</td></tr>
+                <tr><td><code class="script">ROUND</code> <code class="script">ABS</code> <code class="script">IF</code> <code class="script">CONCAT</code></td><td><code class="script">ROUND(x,2)</code></td><td>Utilities</td></tr>
+                <tr><td><code class="script">Math</code> <code class="script">JSON</code> …</td><td><code class="script">Math.sqrt(cell('A1'))</code></td><td>Standard JS objects</td></tr>
+              </table>
+              <h4>script= examples</h4>
+              <table>
+                <tr><th>Cell content</th><th>Result</th></tr>
+                <tr><td><code class="script">script=cell('B2')+cell('C2')</code></td><td>Sum of two cells</td></tr>
+                <tr><td><code class="script">script=SUM(range('products!E1:E7'))</code></td><td>Cross-table sum</td></tr>
+                <tr><td><code class="script">script=cell('products!E1')*1.1</code></td><td>Markup</td></tr>
+                <tr><td><code class="script">script=return cell('A1')&gt;10?'High':'Low'</code></td><td>Ternary</td></tr>
+                <tr><td><code class="script">script=return row+col</code></td><td>Position-based value</td></tr>
+                <tr><td><code class="script">script=JSON.stringify(range('A1:C1'))</code></td><td>Debug range</td></tr>
+              </table>
+              <p>Scripts run in a limited function scope (not full page <code>window</code>). Errors show as <code>#JS! …</code>.</p>
+            </div>
+
+            <div class="help-section" data-section="errors">
+              <h4>Error codes</h4>
+              <table>
+                <tr><th>Code</th><th>Typical cause</th></tr>
+                <tr><td><code>#DIV/0!</code></td><td>Division by zero</td></tr>
+                <tr><td><code>#VALUE!</code></td><td>Wrong type for operation</td></tr>
+                <tr><td><code>#REF!</code></td><td>Bad/missing cell, unknown table, or circular reference</td></tr>
+                <tr><td><code>#NAME?</code></td><td>Unknown function or parse error</td></tr>
+                <tr><td><code>#NUM!</code></td><td>Non-finite number (script)</td></tr>
+                <tr><td><code>#JS! …</code></td><td>JavaScript exception in <code class="script">script=</code></td></tr>
+                <tr><td><code>#ERROR!</code></td><td>Other evaluation failure</td></tr>
+              </table>
+            </div>
+
+            <div class="help-section" data-section="examples">
+              <h4>Excel-style</h4>
+              <table>
+                <tr><th>Goal</th><th>Formula</th></tr>
+                <tr><td>Line total</td><td><code>=D1*E1*(1-F1)</code></td></tr>
+                <tr><td>Margin %</td><td><code>=IF(E1&gt;0,ROUND(100*(E1-F1)/E1,1),0)</code></td></tr>
+                <tr><td>Dept budget</td><td><code>=departments!C1</code></td></tr>
+                <tr><td>Payroll total</td><td><code>=SUM(employees!F1:F11)</code></td></tr>
+                <tr><td>Over budget?</td><td><code>=IF(SUM(employees!F1:F11)&gt;departments!C1,"Over","Under")</code></td></tr>
+              </table>
+              <h4>Mixed with SQL</h4>
+              <p>Use the SQL console for joins/aggregates; save results as a table; then use <code>=</code> or <code class="script">script=</code> on that sheet for spreadsheet math.</p>
+              <h4>Demo database</h4>
+              <p>Import <code>demo_full.sqlite</code> and open <strong>calc_sheet</strong>, <strong>products</strong>, <strong>order_items</strong>, and <strong>dashboard</strong> for live samples of both formula styles.</p>
+            </div>
+          </div>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      const close = () => overlay.remove();
+      overlay.querySelector('#helpClose').onclick = close;
+      overlay.addEventListener('click', e => { if (e.target === overlay) close(); });
+      document.addEventListener('keydown', function onKey(e) {
+        if (e.key === 'Escape') { close(); document.removeEventListener('keydown', onKey); }
+      });
+
+      const tabs = overlay.querySelectorAll('#helpTabs button');
+      const sections = overlay.querySelectorAll('.help-section');
+      tabs.forEach(btn => {
+        btn.onclick = () => {
+          tabs.forEach(b => b.classList.remove('active'));
+          sections.forEach(s => s.classList.remove('active'));
+          btn.classList.add('active');
+          overlay.querySelector(`.help-section[data-section="${btn.dataset.tab}"]`)?.classList.add('active');
+        };
+      });
     }
 
     function promptNewTable() {
@@ -1958,6 +2356,7 @@
 
     document.getElementById('btnNewTable').onclick = promptNewTable;
     document.getElementById('btnEmptyNewTable').onclick = promptNewTable;
+    document.getElementById('btnEmptyHelp').onclick = showFormulaHelp;
     document.getElementById('btnRefreshTables').onclick = refreshTableList;
 
     document.getElementById('btnAddRow').onclick = addRow;
@@ -1966,10 +2365,13 @@
     document.getElementById('btnDelCol').onclick = deleteColumn;
     document.getElementById('btnDropTable').onclick = dropTable;
     document.getElementById('btnRecalc').onclick = () => {
-      evalCache.clear();
+      clearTableCaches();
+      if (currentTable) loadGridData();
       renderGrid();
       toast('Formulas recalculated', 'success');
     };
+    document.getElementById('btnFormulaHelp').onclick = showFormulaHelp;
+    document.getElementById('helpHint').onclick = showFormulaHelp;
 
     document.getElementById('btnRunSql').onclick = runSql;
     document.getElementById('btnClearSql').onclick = () => {
