@@ -1,0 +1,1866 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SQLSheet — SQLite + Spreadsheet + Formulas</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --surface2: #243044;
+      --border: #2d3a4f;
+      --text: #e7ecf3;
+      --text-muted: #8b9bb4;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #22c55e;
+      --danger: #ef4444;
+      --warning: #f59e0b;
+      --formula: #a78bfa;
+      --header-h: 48px;
+      --sidebar-w: 220px;
+      --sql-h: 180px;
+      --fx-h: 32px;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      height: var(--header-h);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .logo {
+      font-weight: 700;
+      font-size: 15px;
+      color: var(--accent);
+      margin-right: 12px;
+      white-space: nowrap;
+    }
+    .logo span { color: var(--text-muted); font-weight: 400; }
+    .btn {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 5px 10px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      transition: background .15s, border-color .15s;
+      white-space: nowrap;
+    }
+    .btn:hover { background: var(--border); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.primary:hover { background: var(--accent-hover); }
+    .btn.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
+    .btn.danger:hover { background: var(--danger); color: #fff; }
+    .btn:disabled { opacity: .45; cursor: not-allowed; }
+    .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+    .spacer { flex: 1; }
+    .status {
+      font-size: 11px;
+      color: var(--text-muted);
+      max-width: 300px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .main { flex: 1; display: flex; overflow: hidden; }
+    .sidebar {
+      width: var(--sidebar-w);
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .sidebar-header {
+      padding: 10px 12px;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: .04em;
+      color: var(--text-muted);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .table-list { flex: 1; overflow-y: auto; padding: 6px; }
+    .table-item {
+      padding: 7px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 13px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 2px;
+    }
+    .table-item:hover { background: var(--surface2); }
+    .table-item.active { background: var(--accent); color: #fff; }
+    .table-item .icon { opacity: .7; font-size: 12px; }
+    .table-item .count { margin-left: auto; font-size: 11px; opacity: .7; }
+    .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .table-bar {
+      height: 40px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .table-bar .name { font-weight: 600; font-size: 14px; margin-right: 8px; }
+    /* Formula bar */
+    .fx-bar {
+      height: var(--fx-h);
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 8px;
+      gap: 8px;
+      flex-shrink: 0;
+    }
+    .fx-bar .fx-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--formula);
+      width: 28px;
+      text-align: center;
+    }
+    .fx-bar .fx-ref {
+      font-size: 12px;
+      color: var(--text-muted);
+      min-width: 48px;
+      font-family: monospace;
+    }
+    .fx-bar input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 13px;
+      font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+      outline: none;
+    }
+    .fx-bar input:focus { border-color: var(--formula); }
+    .fx-bar input.formula { color: var(--formula); }
+    .grid-area {
+      flex: 1;
+      position: relative;
+      overflow: hidden;
+      background: var(--bg);
+      display: flex;
+      flex-direction: column;
+    }
+    .grid-wrap {
+      flex: 1;
+      overflow: auto;
+      position: relative;
+      background: var(--bg);
+    }
+    .grid-area > .empty {
+      position: absolute;
+      inset: 0;
+      z-index: 5;
+      background: var(--bg);
+    }
+    table.grid {
+      border-collapse: collapse;
+      table-layout: fixed;
+      min-width: 100%;
+    }
+    table.grid th, table.grid td {
+      border: 1px solid var(--border);
+      padding: 0;
+      height: 28px;
+      min-width: 90px;
+      max-width: 280px;
+      position: relative;
+    }
+    table.grid th {
+      background: var(--surface2);
+      font-size: 11px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-align: center;
+      position: sticky;
+      top: 0;
+      z-index: 2;
+      user-select: none;
+    }
+    table.grid th.row-num, table.grid td.row-num {
+      width: 42px;
+      min-width: 42px;
+      max-width: 42px;
+      background: var(--surface2);
+      text-align: center;
+      color: var(--text-muted);
+      font-size: 11px;
+      position: sticky;
+      left: 0;
+      z-index: 1;
+    }
+    table.grid th.row-num { z-index: 3; }
+    table.grid td { background: var(--surface); }
+    table.grid td.selected {
+      outline: 2px solid var(--accent);
+      outline-offset: -2px;
+      z-index: 1;
+    }
+    table.grid input.cell {
+      width: 100%;
+      height: 100%;
+      border: none;
+      background: transparent;
+      color: var(--text);
+      padding: 4px 8px;
+      font-size: 13px;
+      font-family: inherit;
+      outline: none;
+    }
+    table.grid input.cell:focus { background: #1e2a3d; }
+    table.grid input.cell.is-formula { color: var(--formula); }
+    table.grid input.cell.is-error { color: var(--danger); }
+    table.grid .col-header-inner {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 0 4px;
+      line-height: 1.2;
+    }
+    table.grid .col-letter {
+      font-size: 10px;
+      color: var(--accent);
+      font-weight: 700;
+    }
+    table.grid .col-header-inner input {
+      background: transparent;
+      border: none;
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 600;
+      text-align: center;
+      width: 100%;
+      outline: none;
+    }
+    table.grid .col-header-inner input:focus {
+      background: #1e2a3d;
+      border-radius: 3px;
+    }
+    .sql-panel {
+      height: var(--sql-h);
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .sql-panel.collapsed { height: 36px; }
+    .sql-header {
+      height: 36px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+    }
+    .sql-header .title { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+    .sql-body { flex: 1; display: flex; overflow: hidden; }
+    .sql-editor {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      border-right: 1px solid var(--border);
+    }
+    .sql-editor textarea {
+      flex: 1;
+      background: var(--bg);
+      border: none;
+      color: var(--text);
+      font-family: 'SF Mono', 'Fira Code', Consolas, monospace;
+      font-size: 13px;
+      padding: 10px;
+      resize: none;
+      outline: none;
+    }
+    .sql-actions {
+      padding: 6px 10px;
+      display: flex;
+      gap: 6px;
+      background: var(--surface2);
+    }
+    .sql-results { flex: 1; overflow: auto; font-size: 12px; }
+    .sql-results .msg { padding: 10px; color: var(--text-muted); }
+    .sql-results .error {
+      padding: 10px;
+      color: var(--danger);
+      white-space: pre-wrap;
+      font-family: monospace;
+    }
+    .sql-results table { border-collapse: collapse; width: 100%; font-size: 12px; }
+    .sql-results th, .sql-results td {
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      text-align: left;
+    }
+    .sql-results th {
+      background: var(--surface2);
+      position: sticky;
+      top: 0;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+    .sql-results tr:hover td { background: var(--surface2); }
+    .empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      color: var(--text-muted);
+      gap: 12px;
+      padding: 40px;
+      text-align: center;
+    }
+    .empty h2 { font-size: 18px; color: var(--text); }
+    .empty p { font-size: 13px; max-width: 420px; line-height: 1.5; }
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,.6);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }
+    .modal {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 20px;
+      width: 400px;
+      max-width: 90vw;
+      box-shadow: 0 20px 40px rgba(0,0,0,.4);
+    }
+    .modal h3 { margin-bottom: 14px; font-size: 16px; }
+    .modal label {
+      display: block;
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+    .modal input, .modal select, .modal textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 13px;
+      margin-bottom: 12px;
+      outline: none;
+    }
+    .modal input:focus, .modal select:focus { border-color: var(--accent); }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    input[type=file] { display: none; }
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+    .toast {
+      position: fixed;
+      bottom: 20px;
+      right: 20px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      z-index: 200;
+      animation: slideIn .25s ease;
+      max-width: 320px;
+    }
+    .toast.success { border-color: var(--success); }
+    .toast.error { border-color: var(--danger); }
+    @keyframes slideIn {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    .help-hint {
+      font-size: 11px;
+      color: var(--text-muted);
+      padding: 4px 12px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="logo">SQLSheet <span>· SQLite + Excel formulas</span></div>
+    <button class="btn" id="btnNew" title="New database">New</button>
+    <button class="btn" id="btnOpen" title="Open SQLite file">Open</button>
+    <button class="btn" id="btnSave" title="Download .sqlite">Save</button>
+    <div class="sep"></div>
+    <button class="btn" id="btnImportCsv" title="Import CSV into new table">Import CSV</button>
+    <button class="btn" id="btnExportCsv" title="Export current table as CSV">Export CSV</button>
+    <div class="sep"></div>
+    <button class="btn primary" id="btnNewTable">+ Table</button>
+    <div class="spacer"></div>
+    <span class="status" id="status">Loading SQLite…</span>
+  </header>
+
+  <div class="main">
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        Tables
+        <button class="btn" id="btnRefreshTables" style="padding:2px 6px;font-size:11px" title="Refresh">↻</button>
+      </div>
+      <div class="table-list" id="tableList"></div>
+    </aside>
+
+    <div class="content">
+      <div class="table-bar" id="tableBar" style="display:none">
+        <span class="name" id="currentTableName"></span>
+        <button class="btn" id="btnAddRow">+ Row</button>
+        <button class="btn" id="btnAddCol">+ Column</button>
+        <button class="btn danger" id="btnDelRow" disabled>− Row</button>
+        <button class="btn danger" id="btnDelCol" disabled>− Column</button>
+        <div class="sep"></div>
+        <button class="btn" id="btnRecalc" title="Recalculate all formulas">ƒx Recalc</button>
+        <button class="btn" id="btnDropTable" title="Drop table">Drop Table</button>
+      </div>
+      <div class="fx-bar" id="fxBar" style="display:none">
+        <span class="fx-label">ƒx</span>
+        <span class="fx-ref" id="fxRef">—</span>
+        <input id="fxInput" placeholder="Enter value or formula, e.g. =SUM(A1:A10) or =B2*1.1" spellcheck="false">
+      </div>
+      <div class="grid-area" id="gridArea">
+        <div class="grid-wrap" id="gridWrap"></div>
+        <div class="empty" id="emptyState">
+          <h2>Welcome to SQLSheet</h2>
+          <p>SQLite database + Excel-style spreadsheet with formulas.<br>
+            Type <code style="color:var(--formula)">=SUM(A1:A10)</code>, <code style="color:var(--formula)">=B2*C2</code>, <code style="color:var(--formula)">=IF(A1&gt;0,"Yes","No")</code> in any cell.</p>
+          <div style="display:flex;gap:8px;margin-top:8px">
+            <button class="btn primary" id="btnEmptyNewTable">Create first table</button>
+            <button class="btn" id="btnEmptyOpen">Open .sqlite</button>
+          </div>
+        </div>
+      </div>
+      <div class="help-hint" id="helpHint" style="display:none">
+        Formulas: =A1+B1 &nbsp;·&nbsp; =SUM(A1:A10) &nbsp;·&nbsp; =AVERAGE(B:B) &nbsp;·&nbsp; =IF(A1&gt;10,"High","Low") &nbsp;·&nbsp; =ROUND(C1,2) &nbsp;·&nbsp; Functions: SUM AVG COUNT MIN MAX IF ROUND ABS POWER CONCAT LEFT RIGHT LEN UPPER LOWER
+      </div>
+      <div class="sql-panel" id="sqlPanel">
+        <div class="sql-header" id="sqlToggle">
+          <span class="title">SQL Console</span>
+          <span style="font-size:11px;color:var(--text-muted)">(Ctrl+Enter to run)</span>
+          <div class="spacer"></div>
+          <span id="sqlToggleIcon">▼</span>
+        </div>
+        <div class="sql-body" id="sqlBody">
+          <div class="sql-editor">
+            <textarea id="sqlInput" placeholder="SELECT * FROM table_name LIMIT 100;&#10;-- Full SQLite syntax supported"></textarea>
+            <div class="sql-actions">
+              <button class="btn primary" id="btnRunSql">Run</button>
+              <button class="btn" id="btnClearSql">Clear</button>
+              <button class="btn" id="btnSaveAsTable" title="Save query result as new table" disabled>Save result as table</button>
+            </div>
+          </div>
+          <div class="sql-results" id="sqlResults">
+            <div class="msg">Results appear here. Run any SELECT / INSERT / UPDATE / CREATE / …</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <input type="file" id="fileOpen" accept=".sqlite,.db,.sqlite3">
+  <input type="file" id="fileCsv" accept=".csv,text/csv">
+
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/sql-wasm.js"></script>
+  <script>
+    // ── State ──────────────────────────────────────────────────────────────
+    let SQL = null;
+    let db = null;
+    let currentTable = null;
+    let selectedRow = null;   // rowid
+    let selectedCol = null;   // column name
+    let selectedColIdx = null;
+    let selectedRowIdx = null; // 0-based data row index
+    let lastQueryResult = null;
+    let sqlCollapsed = false;
+    // Cache of evaluated values for current table: key = "rowid|colName" → computed value
+    let evalCache = new Map();
+    // Raw grid data for formula engine: { colNames: [], rows: [ {rowid, values: []} ] }
+    let gridData = null;
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    function toast(msg, type = '') {
+      const el = document.createElement('div');
+      el.className = 'toast ' + type;
+      el.textContent = msg;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 2800);
+    }
+    function setStatus(t) { document.getElementById('status').textContent = t; }
+    function escapeHtml(s) {
+      return String(s ?? '')
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+    function quoteIdent(name) {
+      return '"' + String(name).replace(/"/g, '""') + '"';
+    }
+    function downloadBlob(blob, filename) {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    // Column letter helpers (Excel-style A, B, … Z, AA, AB…)
+    function colIndexToLetter(idx) {
+      let s = '';
+      let n = idx + 1;
+      while (n > 0) {
+        n--;
+        s = String.fromCharCode(65 + (n % 26)) + s;
+        n = Math.floor(n / 26);
+      }
+      return s;
+    }
+    function letterToColIndex(letter) {
+      let n = 0;
+      const s = letter.toUpperCase();
+      for (let i = 0; i < s.length; i++) {
+        n = n * 26 + (s.charCodeAt(i) - 64);
+      }
+      return n - 1;
+    }
+
+    // ── Formula Engine ─────────────────────────────────────────────────────
+    /*
+      Supports:
+        =A1+B2
+        =SUM(A1:A10)
+        =AVERAGE(B:B)   whole column
+        =IF(A1>10,"Yes","No")
+        =ROUND(C1,2)
+        Nested formulas, basic arithmetic + - * / ^ %
+        Functions: SUM, AVERAGE/AVG, COUNT, COUNTA, MIN, MAX, IF, ROUND, ABS,
+                   POWER, SQRT, CONCAT, LEFT, RIGHT, LEN, UPPER, LOWER, VALUE
+    */
+    const FormulaError = class extends Error {
+      constructor(code, msg) { super(msg || code); this.code = code; }
+    };
+
+    function isFormula(v) {
+      return typeof v === 'string' && v.trim().startsWith('=');
+    }
+
+    function parseNumber(v) {
+      if (v === null || v === undefined || v === '') return null;
+      if (typeof v === 'number') return isFinite(v) ? v : null;
+      if (typeof v === 'boolean') return v ? 1 : 0;
+      const n = Number(String(v).replace(/,/g, ''));
+      return isFinite(n) ? n : null;
+    }
+
+    // Tokenize formula (without leading =)
+    function tokenize(src) {
+      const tokens = [];
+      let i = 0;
+      const s = src.trim();
+      while (i < s.length) {
+        const c = s[i];
+        if (/\s/.test(c)) { i++; continue; }
+        // number
+        if (/[0-9.]/.test(c) || (c === '-' && /[0-9.]/.test(s[i+1]) && (tokens.length === 0 || ['(','+', '-', '*', '/', ',', '^'].includes(tokens[tokens.length-1]?.type)))) {
+          let j = i;
+          if (s[j] === '-') j++;
+          while (j < s.length && /[0-9.]/.test(s[j])) j++;
+          tokens.push({ type: 'num', value: parseFloat(s.slice(i, j)) });
+          i = j;
+          continue;
+        }
+        // string
+        if (c === '"' || c === "'") {
+          const q = c;
+          let j = i + 1, val = '';
+          while (j < s.length && s[j] !== q) {
+            if (s[j] === '\\') { val += s[j+1]; j += 2; }
+            else { val += s[j]; j++; }
+          }
+          tokens.push({ type: 'str', value: val });
+          i = j + 1;
+          continue;
+        }
+        // cell ref or function or range
+        if (/[A-Za-z_]/.test(c)) {
+          let j = i;
+          while (j < s.length && /[A-Za-z0-9_]/.test(s[j])) j++;
+          const word = s.slice(i, j);
+          // Could be cell like A1, or range start, or function
+          if (/^[A-Za-z]+[0-9]+$/.test(word)) {
+            tokens.push({ type: 'cell', value: word.toUpperCase() });
+          } else if (/^[A-Za-z]+$/.test(word) && s[j] === ':') {
+            // column-only range like A:A — handle later
+            tokens.push({ type: 'ident', value: word.toUpperCase() });
+          } else {
+            tokens.push({ type: 'ident', value: word.toUpperCase() });
+          }
+          i = j;
+          continue;
+        }
+        // operators & punctuation
+        if ('+-*/^%(),:<>!='.includes(c)) {
+          // multi-char ops
+          if (c === '<' && s[i+1] === '=') { tokens.push({ type: 'op', value: '<=' }); i += 2; continue; }
+          if (c === '>' && s[i+1] === '=') { tokens.push({ type: 'op', value: '>=' }); i += 2; continue; }
+          if (c === '<' && s[i+1] === '>') { tokens.push({ type: 'op', value: '<>' }); i += 2; continue; }
+          if (c === '=' && tokens.length) { tokens.push({ type: 'op', value: '=' }); i++; continue; }
+          tokens.push({ type: c === ':' ? 'colon' : (c === ',' ? 'comma' : (c === '(' ? 'lparen' : (c === ')' ? 'rparen' : 'op'))), value: c });
+          i++;
+          continue;
+        }
+        throw new FormulaError('#NAME?', 'Unexpected character: ' + c);
+      }
+      return tokens;
+    }
+
+    // Recursive descent parser + evaluator
+    function createEvaluator(getCellValue, getRangeValues) {
+      let tokens, pos;
+
+      function peek() { return tokens[pos]; }
+      function consume(type) {
+        const t = tokens[pos];
+        if (!t || (type && t.type !== type && t.value !== type)) {
+          throw new FormulaError('#NAME?', 'Expected ' + type);
+        }
+        pos++;
+        return t;
+      }
+
+      function parseExpr() { return parseCompare(); }
+
+      function parseCompare() {
+        let left = parseAdd();
+        while (peek() && peek().type === 'op' && ['=', '<>', '<', '>', '<=', '>='].includes(peek().value)) {
+          const op = consume().value;
+          const right = parseAdd();
+          const ln = parseNumber(left), rn = parseNumber(right);
+          if (ln !== null && rn !== null) {
+            if (op === '=') left = ln === rn;
+            else if (op === '<>') left = ln !== rn;
+            else if (op === '<') left = ln < rn;
+            else if (op === '>') left = ln > rn;
+            else if (op === '<=') left = ln <= rn;
+            else if (op === '>=') left = ln >= rn;
+          } else {
+            const ls = String(left ?? ''), rs = String(right ?? '');
+            if (op === '=') left = ls === rs;
+            else if (op === '<>') left = ls !== rs;
+            else left = false;
+          }
+        }
+        return left;
+      }
+
+      function parseAdd() {
+        let left = parseMul();
+        while (peek() && peek().type === 'op' && (peek().value === '+' || peek().value === '-')) {
+          const op = consume().value;
+          const right = parseMul();
+          const ln = parseNumber(left), rn = parseNumber(right);
+          if (ln === null || rn === null) {
+            if (op === '+') left = String(left ?? '') + String(right ?? '');
+            else throw new FormulaError('#VALUE?');
+          } else {
+            left = op === '+' ? ln + rn : ln - rn;
+          }
+        }
+        return left;
+      }
+
+      function parseMul() {
+        let left = parsePower();
+        while (peek() && peek().type === 'op' && (peek().value === '*' || peek().value === '/' || peek().value === '%')) {
+          const op = consume().value;
+          const right = parsePower();
+          const ln = parseNumber(left), rn = parseNumber(right);
+          if (ln === null || rn === null) throw new FormulaError('#VALUE?');
+          if (op === '*') left = ln * rn;
+          else if (op === '/') {
+            if (rn === 0) throw new FormulaError('#DIV/0!');
+            left = ln / rn;
+          } else left = ln % rn;
+        }
+        return left;
+      }
+
+      function parsePower() {
+        let left = parseUnary();
+        while (peek() && peek().type === 'op' && peek().value === '^') {
+          consume();
+          const right = parseUnary();
+          const ln = parseNumber(left), rn = parseNumber(right);
+          if (ln === null || rn === null) throw new FormulaError('#VALUE?');
+          left = Math.pow(ln, rn);
+        }
+        return left;
+      }
+
+      function parseUnary() {
+        if (peek() && peek().type === 'op' && (peek().value === '+' || peek().value === '-')) {
+          const op = consume().value;
+          const v = parseUnary();
+          const n = parseNumber(v);
+          if (n === null) throw new FormulaError('#VALUE?');
+          return op === '-' ? -n : n;
+        }
+        return parsePrimary();
+      }
+
+      function parsePrimary() {
+        const t = peek();
+        if (!t) throw new FormulaError('#NAME?', 'Unexpected end');
+
+        if (t.type === 'num') { consume(); return t.value; }
+        if (t.type === 'str') { consume(); return t.value; }
+
+        // Cell or range or function
+        if (t.type === 'cell') {
+          consume();
+          // range A1:B2
+          if (peek() && peek().type === 'colon') {
+            consume();
+            const t2 = consume('cell');
+            return getRangeValues(t.value, t2.value);
+          }
+          return getCellValue(t.value);
+        }
+
+        if (t.type === 'ident') {
+          const name = t.value;
+          consume();
+          // function call
+          if (peek() && peek().type === 'lparen') {
+            consume();
+            const args = [];
+            if (peek() && peek().type !== 'rparen') {
+              args.push(parseArg());
+              while (peek() && peek().type === 'comma') {
+                consume();
+                args.push(parseArg());
+              }
+            }
+            consume('rparen');
+            return callFunc(name, args);
+          }
+          // bare column ref like A (treat as whole column later if followed by :)
+          if (peek() && peek().type === 'colon') {
+            consume();
+            const t2 = peek();
+            if (t2 && t2.type === 'ident') {
+              consume();
+              // A:A or A:B whole columns
+              return getRangeValues(name + '1', t2.value + '1048576'); // large range, engine will clamp
+            }
+          }
+          throw new FormulaError('#NAME?', 'Unknown: ' + name);
+        }
+
+        if (t.type === 'lparen') {
+          consume();
+          const v = parseExpr();
+          consume('rparen');
+          return v;
+        }
+
+        throw new FormulaError('#NAME?', 'Unexpected token');
+      }
+
+      function parseArg() {
+        // Arg can be a range expression
+        if (peek() && peek().type === 'cell') {
+          const start = peek().value;
+          // look ahead for range without consuming whole expr
+          // simpler: parseExpr and if result is array keep it
+        }
+        // Allow range as argument by parsing cell:cell specially
+        if (peek() && (peek().type === 'cell' || peek().type === 'ident')) {
+          const save = pos;
+          try {
+            const first = consume();
+            if (peek() && peek().type === 'colon') {
+              consume();
+              const second = consume();
+              if (first.type === 'cell' && second.type === 'cell') {
+                return getRangeValues(first.value, second.value);
+              }
+              if (first.type === 'ident' && second.type === 'ident') {
+                return getRangeValues(first.value + '1', second.value + '1048576');
+              }
+            }
+          } catch (_) {}
+          pos = save;
+        }
+        return parseExpr();
+      }
+
+      function callFunc(name, args) {
+        const flatten = (a) => {
+          const out = [];
+          for (const x of a) {
+            if (Array.isArray(x)) out.push(...flatten(x));
+            else out.push(x);
+          }
+          return out;
+        };
+        const nums = (a) => flatten(a).map(parseNumber).filter(n => n !== null);
+
+        switch (name) {
+          case 'SUM': return nums(args).reduce((a, b) => a + b, 0);
+          case 'AVERAGE': case 'AVG': {
+            const n = nums(args);
+            if (!n.length) throw new FormulaError('#DIV/0!');
+            return n.reduce((a, b) => a + b, 0) / n.length;
+          }
+          case 'COUNT': return nums(args).length;
+          case 'COUNTA': return flatten(args).filter(v => v !== null && v !== '').length;
+          case 'MIN': {
+            const n = nums(args);
+            if (!n.length) throw new FormulaError('#VALUE?');
+            return Math.min(...n);
+          }
+          case 'MAX': {
+            const n = nums(args);
+            if (!n.length) throw new FormulaError('#VALUE?');
+            return Math.max(...n);
+          }
+          case 'IF': {
+            if (args.length < 2) throw new FormulaError('#VALUE?');
+            const cond = args[0];
+            const truthy = cond === true || (parseNumber(cond) !== null && parseNumber(cond) !== 0) || (typeof cond === 'string' && cond !== '');
+            return truthy ? args[1] : (args[2] !== undefined ? args[2] : false);
+          }
+          case 'ROUND': {
+            const n = parseNumber(args[0]);
+            if (n === null) throw new FormulaError('#VALUE?');
+            const d = parseNumber(args[1]) ?? 0;
+            const f = Math.pow(10, d);
+            return Math.round(n * f) / f;
+          }
+          case 'ABS': {
+            const n = parseNumber(args[0]);
+            if (n === null) throw new FormulaError('#VALUE?');
+            return Math.abs(n);
+          }
+          case 'SQRT': {
+            const n = parseNumber(args[0]);
+            if (n === null || n < 0) throw new FormulaError('#VALUE?');
+            return Math.sqrt(n);
+          }
+          case 'POWER': case 'POW': {
+            const a = parseNumber(args[0]), b = parseNumber(args[1]);
+            if (a === null || b === null) throw new FormulaError('#VALUE?');
+            return Math.pow(a, b);
+          }
+          case 'CONCAT': case 'CONCATENATE':
+            return flatten(args).map(v => v == null ? '' : String(v)).join('');
+          case 'LEFT': {
+            const s = String(args[0] ?? '');
+            const n = parseNumber(args[1]) ?? 1;
+            return s.slice(0, n);
+          }
+          case 'RIGHT': {
+            const s = String(args[0] ?? '');
+            const n = parseNumber(args[1]) ?? 1;
+            return s.slice(-n);
+          }
+          case 'LEN': case 'LENGTH':
+            return String(args[0] ?? '').length;
+          case 'UPPER': return String(args[0] ?? '').toUpperCase();
+          case 'LOWER': return String(args[0] ?? '').toLowerCase();
+          case 'VALUE': {
+            const n = parseNumber(args[0]);
+            if (n === null) throw new FormulaError('#VALUE?');
+            return n;
+          }
+          case 'AND': return args.every(a => {
+            const n = parseNumber(a);
+            return a === true || (n !== null && n !== 0) || (typeof a === 'string' && a !== '');
+          });
+          case 'OR': return args.some(a => {
+            const n = parseNumber(a);
+            return a === true || (n !== null && n !== 0) || (typeof a === 'string' && a !== '');
+          });
+          case 'NOT': {
+            const a = args[0];
+            const n = parseNumber(a);
+            return !(a === true || (n !== null && n !== 0) || (typeof a === 'string' && a !== ''));
+          }
+          default:
+            throw new FormulaError('#NAME?', 'Unknown function: ' + name);
+        }
+      }
+
+      return function evaluate(formulaSrc) {
+        const src = formulaSrc.trim().replace(/^=/, '');
+        tokens = tokenize(src);
+        pos = 0;
+        const result = parseExpr();
+        if (pos < tokens.length) throw new FormulaError('#NAME?', 'Unexpected tokens');
+        // If result is array (range used alone), sum it for convenience? No — return first or error
+        if (Array.isArray(result)) {
+          if (result.length === 1) return result[0];
+          return result; // keep array for functions
+        }
+        return result;
+      };
+    }
+
+    // Build getCell / getRange from current gridData
+    function makeSheetAccessors() {
+      if (!gridData) {
+        return {
+          getCellValue: () => null,
+          getRangeValues: () => []
+        };
+      }
+      const { colNames, rows } = gridData;
+      const visiting = new Set(); // cycle detection
+
+      function cellKey(letterRow) {
+        return letterRow; // e.g. "A1"
+      }
+
+      function resolveCell(ref) {
+        // ref = "A1"
+        const m = /^([A-Z]+)([0-9]+)$/.exec(ref);
+        if (!m) throw new FormulaError('#REF!');
+        const colIdx = letterToColIndex(m[1]);
+        const rowIdx = parseInt(m[2], 10) - 1; // 1-based → 0-based
+        if (colIdx < 0 || colIdx >= colNames.length || rowIdx < 0 || rowIdx >= rows.length) {
+          return null; // empty outside
+        }
+        const row = rows[rowIdx];
+        const raw = row.values[colIdx];
+        return { raw, rowIdx, colIdx, rowid: row.rowid, colName: colNames[colIdx] };
+      }
+
+      function getCellValue(ref) {
+        const key = cellKey(ref);
+        if (evalCache.has(key)) return evalCache.get(key);
+
+        const info = resolveCell(ref);
+        if (!info) return null;
+
+        const raw = info.raw;
+        if (!isFormula(raw)) {
+          const n = parseNumber(raw);
+          const v = n !== null ? n : (raw === '' || raw == null ? null : raw);
+          evalCache.set(key, v);
+          return v;
+        }
+
+        // formula — evaluate with cycle check
+        if (visiting.has(key)) throw new FormulaError('#REF!', 'Circular reference');
+        visiting.add(key);
+        try {
+          const evaluate = createEvaluator(getCellValue, getRangeValues);
+          let result = evaluate(raw);
+          if (Array.isArray(result)) result = result[0] ?? null;
+          evalCache.set(key, result);
+          return result;
+        } catch (e) {
+          const err = e instanceof FormulaError ? e.code : '#ERROR!';
+          evalCache.set(key, err);
+          return err;
+        } finally {
+          visiting.delete(key);
+        }
+      }
+
+      function getRangeValues(startRef, endRef) {
+        const m1 = /^([A-Z]+)([0-9]+)$/.exec(startRef);
+        const m2 = /^([A-Z]+)([0-9]+)$/.exec(endRef);
+        if (!m1 || !m2) throw new FormulaError('#REF!');
+        let c1 = letterToColIndex(m1[1]), r1 = parseInt(m1[2], 10) - 1;
+        let c2 = letterToColIndex(m2[1]), r2 = parseInt(m2[2], 10) - 1;
+        if (c1 > c2) [c1, c2] = [c2, c1];
+        if (r1 > r2) [r1, r2] = [r2, r1];
+        // clamp to sheet
+        c1 = Math.max(0, c1);
+        c2 = Math.min(colNames.length - 1, c2);
+        r1 = Math.max(0, r1);
+        r2 = Math.min(rows.length - 1, r2);
+        const out = [];
+        for (let r = r1; r <= r2; r++) {
+          for (let c = c1; c <= c2; c++) {
+            const letter = colIndexToLetter(c) + (r + 1);
+            out.push(getCellValue(letter));
+          }
+        }
+        return out;
+      }
+
+      return { getCellValue, getRangeValues };
+    }
+
+    function evaluateFormula(formula) {
+      const { getCellValue, getRangeValues } = makeSheetAccessors();
+      const evaluate = createEvaluator(getCellValue, getRangeValues);
+      try {
+        let result = evaluate(formula);
+        if (Array.isArray(result)) result = result.length ? result[0] : null;
+        return result;
+      } catch (e) {
+        return e instanceof FormulaError ? e.code : '#ERROR!';
+      }
+    }
+
+    function formatDisplay(val) {
+      if (val === null || val === undefined) return '';
+      if (typeof val === 'number') {
+        if (!isFinite(val)) return String(val);
+        // avoid long floats
+        if (Number.isInteger(val)) return String(val);
+        return parseFloat(val.toPrecision(10)).toString();
+      }
+      if (typeof val === 'boolean') return val ? 'TRUE' : 'FALSE';
+      return String(val);
+    }
+
+    // ── DB init ────────────────────────────────────────────────────────────
+    async function init() {
+      try {
+        SQL = await initSqlJs({
+          locateFile: file => `https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/${file}`
+        });
+        db = new SQL.Database();
+        setStatus('Ready · in-memory SQLite');
+        refreshTableList();
+      } catch (e) {
+        setStatus('Failed to load SQLite');
+        console.error(e);
+        toast('Could not load sql.js: ' + e.message, 'error');
+      }
+    }
+
+    // ── Tables ─────────────────────────────────────────────────────────────
+    function getTables() {
+      const res = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+      if (!res.length) return [];
+      return res[0].values.map(r => r[0]);
+    }
+
+    function refreshTableList() {
+      const list = document.getElementById('tableList');
+      const tables = getTables();
+      list.innerHTML = '';
+      if (!tables.length) {
+        list.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text-muted)">No tables yet</div>';
+      }
+      tables.forEach(name => {
+        let count = 0;
+        try {
+          const r = db.exec(`SELECT COUNT(*) FROM ${quoteIdent(name)}`);
+          count = r[0]?.values[0][0] ?? 0;
+        } catch (_) {}
+        const item = document.createElement('div');
+        item.className = 'table-item' + (name === currentTable ? ' active' : '');
+        item.innerHTML = `<span class="icon">▦</span><span>${escapeHtml(name)}</span><span class="count">${count}</span>`;
+        item.onclick = () => selectTable(name);
+        list.appendChild(item);
+      });
+    }
+
+    function selectTable(name) {
+      currentTable = name;
+      selectedRow = null;
+      selectedCol = null;
+      selectedColIdx = null;
+      selectedRowIdx = null;
+      document.getElementById('btnDelRow').disabled = true;
+      document.getElementById('btnDelCol').disabled = true;
+      document.getElementById('fxRef').textContent = '—';
+      document.getElementById('fxInput').value = '';
+      refreshTableList();
+      renderGrid();
+    }
+
+    function getTableInfo(name) {
+      const info = db.exec(`PRAGMA table_info(${quoteIdent(name)})`);
+      if (!info.length) return { columns: [], rows: [] };
+      const columns = info[0].values.map(r => ({
+        cid: r[0], name: r[1], type: r[2], notnull: r[3], dflt: r[4], pk: r[5]
+      }));
+      const data = db.exec(`SELECT rowid, * FROM ${quoteIdent(name)}`);
+      const rows = data.length ? data[0].values : [];
+      return { columns, rows };
+    }
+
+    function loadGridData() {
+      if (!currentTable) { gridData = null; return; }
+      const { columns, rows } = getTableInfo(currentTable);
+      const colNames = columns.map(c => c.name);
+      gridData = {
+        colNames,
+        rows: rows.map(r => ({
+          rowid: r[0],
+          values: r.slice(1)
+        }))
+      };
+      evalCache.clear();
+    }
+
+    // ── Grid rendering ─────────────────────────────────────────────────────
+    function renderGrid() {
+      const wrap = document.getElementById('gridWrap');
+      const bar = document.getElementById('tableBar');
+      const fxBar = document.getElementById('fxBar');
+      const helpHint = document.getElementById('helpHint');
+      const empty = document.getElementById('emptyState');
+
+      if (!currentTable) {
+        if (bar) bar.style.display = 'none';
+        if (fxBar) fxBar.style.display = 'none';
+        if (helpHint) helpHint.style.display = 'none';
+        if (wrap) wrap.innerHTML = '';
+        if (empty) empty.style.display = 'flex';
+        return;
+      }
+
+      if (empty) empty.style.display = 'none';
+      if (bar) bar.style.display = 'flex';
+      if (fxBar) fxBar.style.display = 'flex';
+      if (helpHint) helpHint.style.display = 'block';
+      document.getElementById('currentTableName').textContent = currentTable;
+
+      loadGridData();
+      const { colNames, rows } = gridData;
+
+      let html = '<table class="grid"><thead><tr>';
+      html += '<th class="row-num">#</th>';
+      colNames.forEach((c, i) => {
+        const letter = colIndexToLetter(i);
+        html += `<th data-col="${i}"><div class="col-header-inner">
+          <span class="col-letter">${letter}</span>
+          <input value="${escapeHtml(c)}" data-old="${escapeHtml(c)}" title="Rename column (formulas use letter ${letter})">
+        </div></th>`;
+      });
+      html += '</tr></thead><tbody>';
+
+      if (!rows.length) {
+        html += `<tr><td class="row-num"></td><td colspan="${colNames.length}" style="padding:12px;color:var(--text-muted);text-align:center">Empty table — click + Row. Formulas: =SUM(A1:A5), =B1*1.1</td></tr>`;
+      } else {
+        rows.forEach((row, ri) => {
+          html += `<tr data-rowid="${row.rowid}" data-rowidx="${ri}">`;
+          html += `<td class="row-num">${ri + 1}</td>`;
+          for (let ci = 0; ci < colNames.length; ci++) {
+            const raw = row.values[ci];
+            const letter = colIndexToLetter(ci);
+            const ref = letter + (ri + 1);
+            let display, isF = false, isErr = false;
+            if (isFormula(raw)) {
+              isF = true;
+              const computed = evaluateFormula(raw);
+              display = formatDisplay(computed);
+              isErr = typeof computed === 'string' && computed.startsWith('#');
+            } else {
+              display = raw === null || raw === undefined ? '' : String(raw);
+            }
+            const cls = [isF ? 'is-formula' : '', isErr ? 'is-error' : ''].filter(Boolean).join(' ');
+            html += `<td data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}">
+              <input class="cell ${cls}" value="${escapeHtml(display)}"
+                     data-raw="${escapeHtml(raw ?? '')}"
+                     data-rowid="${row.rowid}" data-col="${escapeHtml(colNames[ci])}"
+                     data-colidx="${ci}" data-rowidx="${ri}" data-ref="${ref}"
+                     title="${isF ? escapeHtml(raw) : ''}">
+            </td>`;
+          }
+          html += '</tr>';
+        });
+      }
+      html += '</tbody></table>';
+      wrap.innerHTML = html;
+
+      // Cell handlers
+      wrap.querySelectorAll('input.cell').forEach(inp => {
+        inp.addEventListener('focus', () => {
+          selectedRow = inp.dataset.rowid;
+          selectedCol = inp.dataset.col;
+          selectedColIdx = parseInt(inp.dataset.colidx, 10);
+          selectedRowIdx = parseInt(inp.dataset.rowidx, 10);
+          document.getElementById('btnDelRow').disabled = false;
+          document.getElementById('btnDelCol').disabled = false;
+          wrap.querySelectorAll('td.selected').forEach(td => td.classList.remove('selected'));
+          inp.closest('td')?.classList.add('selected');
+
+          // Formula bar
+          document.getElementById('fxRef').textContent = inp.dataset.ref;
+          const raw = inp.dataset.raw;
+          document.getElementById('fxInput').value = raw;
+          document.getElementById('fxInput').classList.toggle('formula', isFormula(raw));
+        });
+
+        // On focus show raw formula for editing
+        inp.addEventListener('focus', () => {
+          if (isFormula(inp.dataset.raw)) {
+            inp.value = inp.dataset.raw;
+            inp.classList.add('is-formula');
+          }
+        });
+
+        inp.addEventListener('blur', () => {
+          // after edit, value is already committed via change
+        });
+
+        inp.addEventListener('change', () => {
+          commitCell(inp);
+        });
+
+        inp.addEventListener('keydown', e => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            inp.blur();
+            commitCell(inp);
+            // move down
+            const next = document.querySelector(
+              `input.cell[data-rowidx="${selectedRowIdx + 1}"][data-colidx="${selectedColIdx}"]`
+            );
+            next?.focus();
+          } else if (e.key === 'Escape') {
+            inp.value = isFormula(inp.dataset.raw) ? inp.dataset.raw : (inp.dataset.raw || '');
+            inp.blur();
+          }
+        });
+      });
+
+      // Column rename
+      wrap.querySelectorAll('th input').forEach(inp => {
+        inp.addEventListener('change', () => {
+          const oldName = inp.dataset.old;
+          const newName = inp.value.trim();
+          if (!newName || newName === oldName) {
+            inp.value = oldName;
+            return;
+          }
+          renameColumn(oldName, newName);
+        });
+      });
+
+      wrap.querySelectorAll('th[data-col]').forEach(th => {
+        th.addEventListener('click', e => {
+          if (e.target.tagName === 'INPUT') return;
+          selectedCol = colNames[parseInt(th.dataset.col, 10)];
+          selectedColIdx = parseInt(th.dataset.col, 10);
+          selectedRow = null;
+          document.getElementById('btnDelCol').disabled = false;
+          document.getElementById('btnDelRow').disabled = true;
+        });
+      });
+    }
+
+    function commitCell(inp) {
+      const raw = inp.value;
+      const rowid = inp.dataset.rowid;
+      const col = inp.dataset.col;
+      try {
+        let store = raw;
+        // Keep formula as-is; otherwise try number
+        if (!isFormula(raw) && raw !== '' && !isNaN(raw) && String(raw).trim() !== '') {
+          store = Number(raw);
+        } else if (raw === '') {
+          store = null;
+        }
+        db.run(`UPDATE ${quoteIdent(currentTable)} SET ${quoteIdent(col)} = ? WHERE rowid = ?`, [store, rowid]);
+        // Full recalc because dependencies may exist
+        renderGrid();
+        // restore selection
+        const ref = inp.dataset.ref;
+        const again = document.querySelector(`input.cell[data-ref="${ref}"]`);
+        if (again) {
+          again.focus();
+          again.closest('td')?.classList.add('selected');
+        }
+        setStatus(`Updated ${ref || col}`);
+      } catch (e) {
+        toast('Update failed: ' + e.message, 'error');
+        renderGrid();
+      }
+    }
+
+    // Formula bar commit
+    document.getElementById('fxInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        commitFromFxBar();
+      }
+    });
+    document.getElementById('fxInput').addEventListener('change', commitFromFxBar);
+
+    function commitFromFxBar() {
+      if (selectedRow == null || !selectedCol) return;
+      const raw = document.getElementById('fxInput').value;
+      try {
+        let store = raw;
+        if (!isFormula(raw) && raw !== '' && !isNaN(raw) && String(raw).trim() !== '') {
+          store = Number(raw);
+        } else if (raw === '') store = null;
+        db.run(`UPDATE ${quoteIdent(currentTable)} SET ${quoteIdent(selectedCol)} = ? WHERE rowid = ?`, [store, selectedRow]);
+        renderGrid();
+        const ref = document.getElementById('fxRef').textContent;
+        const again = document.querySelector(`input.cell[data-ref="${ref}"]`);
+        again?.focus();
+        setStatus(`Updated ${ref}`);
+      } catch (e) {
+        toast('Update failed: ' + e.message, 'error');
+      }
+    }
+
+    // ── Schema operations ──────────────────────────────────────────────────
+    function createTable(name, columns) {
+      const cols = columns.map(c => `${quoteIdent(c.name)} ${c.type || 'TEXT'}`).join(', ');
+      db.run(`CREATE TABLE ${quoteIdent(name)} (${cols})`);
+      refreshTableList();
+      selectTable(name);
+      toast(`Table "${name}" created`, 'success');
+    }
+
+    function addRow() {
+      if (!currentTable) return;
+      try {
+        const { columns } = getTableInfo(currentTable);
+        if (!columns.length) {
+          toast('Table has no columns', 'error');
+          return;
+        }
+        // Prefer explicit NULLs — works even when DEFAULT VALUES is rejected
+        const placeholders = columns.map(() => '?').join(',');
+        const values = columns.map(() => null);
+        try {
+          db.run(`INSERT INTO ${quoteIdent(currentTable)} VALUES (${placeholders})`, values);
+        } catch (e1) {
+          // Fallback: named columns with NULL
+          const colList = columns.map(c => quoteIdent(c.name)).join(', ');
+          db.run(`INSERT INTO ${quoteIdent(currentTable)} (${colList}) VALUES (${placeholders})`, values);
+        }
+        renderGrid();
+        refreshTableList();
+        // Focus first cell of the new last row
+        requestAnimationFrame(() => {
+          const cells = document.querySelectorAll('#gridWrap input.cell');
+          if (cells.length) {
+            const lastRowFirst = cells[cells.length - columns.length] || cells[cells.length - 1];
+            lastRowFirst?.focus();
+          }
+        });
+      } catch (e) {
+        toast('Add row failed: ' + e.message, 'error');
+        console.error(e);
+      }
+    }
+
+    function addColumn() {
+      if (!currentTable) return;
+      showModal({
+        title: 'Add Column',
+        fields: [
+          { name: 'name', label: 'Column name', type: 'text', required: true },
+          { name: 'type', label: 'Type', type: 'select', options: ['TEXT', 'INTEGER', 'REAL', 'BLOB', 'NUMERIC'], value: 'TEXT' }
+        ],
+        onOk: (vals) => {
+          const name = vals.name.trim();
+          if (!name) return;
+          try {
+            db.run(`ALTER TABLE ${quoteIdent(currentTable)} ADD COLUMN ${quoteIdent(name)} ${vals.type}`);
+            renderGrid();
+            toast(`Column "${name}" added`, 'success');
+          } catch (e) {
+            toast('Add column failed: ' + e.message, 'error');
+          }
+        }
+      });
+    }
+
+    function deleteRow() {
+      if (!currentTable || selectedRow == null) return;
+      if (!confirm('Delete selected row?')) return;
+      try {
+        db.run(`DELETE FROM ${quoteIdent(currentTable)} WHERE rowid = ?`, [selectedRow]);
+        selectedRow = null;
+        document.getElementById('btnDelRow').disabled = true;
+        renderGrid();
+        refreshTableList();
+        toast('Row deleted', 'success');
+      } catch (e) {
+        toast('Delete failed: ' + e.message, 'error');
+      }
+    }
+
+    function deleteColumn() {
+      if (!currentTable || !selectedCol) return;
+      if (!confirm(`Delete column "${selectedCol}"? This recreates the table.`)) return;
+      try {
+        const { columns } = getTableInfo(currentTable);
+        const keep = columns.filter(c => c.name !== selectedCol);
+        if (!keep.length) {
+          toast('Cannot delete the last column', 'error');
+          return;
+        }
+        const tmp = currentTable + '_tmp_' + Date.now();
+        const colDefs = keep.map(c => {
+          let def = `${quoteIdent(c.name)} ${c.type || 'TEXT'}`;
+          if (c.pk) def += ' PRIMARY KEY';
+          if (c.notnull) def += ' NOT NULL';
+          return def;
+        }).join(', ');
+        db.run(`CREATE TABLE ${quoteIdent(tmp)} (${colDefs})`);
+        const colList = keep.map(c => quoteIdent(c.name)).join(', ');
+        db.run(`INSERT INTO ${quoteIdent(tmp)} (${colList}) SELECT ${colList} FROM ${quoteIdent(currentTable)}`);
+        db.run(`DROP TABLE ${quoteIdent(currentTable)}`);
+        db.run(`ALTER TABLE ${quoteIdent(tmp)} RENAME TO ${quoteIdent(currentTable)}`);
+        selectedCol = null;
+        document.getElementById('btnDelCol').disabled = true;
+        renderGrid();
+        refreshTableList();
+        toast('Column deleted', 'success');
+      } catch (e) {
+        toast('Delete column failed: ' + e.message, 'error');
+      }
+    }
+
+    function renameColumn(oldName, newName) {
+      try {
+        db.run(`ALTER TABLE ${quoteIdent(currentTable)} RENAME COLUMN ${quoteIdent(oldName)} TO ${quoteIdent(newName)}`);
+        renderGrid();
+        toast(`Renamed to "${newName}"`, 'success');
+      } catch (e) {
+        try {
+          const { columns } = getTableInfo(currentTable);
+          const tmp = currentTable + '_tmp_' + Date.now();
+          const newCols = columns.map(c => {
+            const n = c.name === oldName ? newName : c.name;
+            let def = `${quoteIdent(n)} ${c.type || 'TEXT'}`;
+            if (c.pk) def += ' PRIMARY KEY';
+            if (c.notnull) def += ' NOT NULL';
+            return def;
+          });
+          db.run(`CREATE TABLE ${quoteIdent(tmp)} (${newCols.join(', ')})`);
+          const oldList = columns.map(c => quoteIdent(c.name)).join(', ');
+          const newList = columns.map(c => quoteIdent(c.name === oldName ? newName : c.name)).join(', ');
+          db.run(`INSERT INTO ${quoteIdent(tmp)} (${newList}) SELECT ${oldList} FROM ${quoteIdent(currentTable)}`);
+          db.run(`DROP TABLE ${quoteIdent(currentTable)}`);
+          db.run(`ALTER TABLE ${quoteIdent(tmp)} RENAME TO ${quoteIdent(currentTable)}`);
+          renderGrid();
+          toast(`Renamed to "${newName}"`, 'success');
+        } catch (e2) {
+          toast('Rename failed: ' + e2.message, 'error');
+          renderGrid();
+        }
+      }
+    }
+
+    function dropTable() {
+      if (!currentTable) return;
+      if (!confirm(`Drop table "${currentTable}" permanently?`)) return;
+      try {
+        db.run(`DROP TABLE ${quoteIdent(currentTable)}`);
+        currentTable = null;
+        refreshTableList();
+        renderGrid();
+        toast('Table dropped', 'success');
+      } catch (e) {
+        toast('Drop failed: ' + e.message, 'error');
+      }
+    }
+
+    // ── SQL console ────────────────────────────────────────────────────────
+    function runSql() {
+      const sql = document.getElementById('sqlInput').value.trim();
+      if (!sql) return;
+      const resultsEl = document.getElementById('sqlResults');
+      const saveBtn = document.getElementById('btnSaveAsTable');
+      lastQueryResult = null;
+      saveBtn.disabled = true;
+
+      try {
+        const results = db.exec(sql);
+        refreshTableList();
+        if (currentTable && getTables().includes(currentTable)) {
+          renderGrid();
+        } else if (currentTable && !getTables().includes(currentTable)) {
+          currentTable = null;
+          renderGrid();
+        }
+
+        if (!results.length) {
+          resultsEl.innerHTML = '<div class="msg">Query executed successfully (no result set).</div>';
+          setStatus('Query OK');
+          return;
+        }
+
+        const r = results[0];
+        lastQueryResult = r;
+        saveBtn.disabled = false;
+
+        let html = '<table><thead><tr>';
+        r.columns.forEach(c => { html += `<th>${escapeHtml(c)}</th>`; });
+        html += '</tr></thead><tbody>';
+        const maxRows = 500;
+        r.values.slice(0, maxRows).forEach(row => {
+          html += '<tr>';
+          row.forEach(v => {
+            html += `<td>${v === null ? '<i style="opacity:.5">NULL</i>' : escapeHtml(String(v))}</td>`;
+          });
+          html += '</tr>';
+        });
+        html += '</tbody></table>';
+        if (r.values.length > maxRows) {
+          html += `<div class="msg">Showing first ${maxRows} of ${r.values.length} rows</div>`;
+        }
+        resultsEl.innerHTML = html;
+        setStatus(`Query returned ${r.values.length} row(s)`);
+      } catch (e) {
+        resultsEl.innerHTML = `<div class="error">${escapeHtml(e.message)}</div>`;
+        setStatus('Query error');
+      }
+    }
+
+    function saveResultAsTable() {
+      if (!lastQueryResult) return;
+      showModal({
+        title: 'Save result as table',
+        fields: [
+          { name: 'name', label: 'Table name', type: 'text', required: true, value: 'query_result' }
+        ],
+        onOk: (vals) => {
+          const name = vals.name.trim();
+          if (!name) return;
+          try {
+            db.run(`DROP TABLE IF EXISTS ${quoteIdent(name)}`);
+            const cols = lastQueryResult.columns.map(c => quoteIdent(c) + ' TEXT').join(', ');
+            db.run(`CREATE TABLE ${quoteIdent(name)} (${cols})`);
+            const placeholders = lastQueryResult.columns.map(() => '?').join(',');
+            const stmt = db.prepare(`INSERT INTO ${quoteIdent(name)} VALUES (${placeholders})`);
+            lastQueryResult.values.forEach(row => stmt.run(row));
+            stmt.free();
+            refreshTableList();
+            selectTable(name);
+            toast(`Saved as "${name}"`, 'success');
+          } catch (e) {
+            toast('Save failed: ' + e.message, 'error');
+          }
+        }
+      });
+    }
+
+    // ── Import / Export ────────────────────────────────────────────────────
+    function openDbFile(file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const u8 = new Uint8Array(reader.result);
+          db = new SQL.Database(u8);
+          currentTable = null;
+          refreshTableList();
+          renderGrid();
+          const tables = getTables();
+          if (tables.length) selectTable(tables[0]);
+          setStatus(`Opened ${file.name}`);
+          toast(`Loaded ${file.name}`, 'success');
+        } catch (e) {
+          toast('Invalid SQLite file: ' + e.message, 'error');
+        }
+      };
+      reader.readAsArrayBuffer(file);
+    }
+
+    function saveDb() {
+      try {
+        const data = db.export();
+        const blob = new Blob([data], { type: 'application/x-sqlite3' });
+        downloadBlob(blob, 'sqlsheet.sqlite');
+        toast('Database saved', 'success');
+      } catch (e) {
+        toast('Save failed: ' + e.message, 'error');
+      }
+    }
+
+    function importCsv(file) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        try {
+          const text = reader.result;
+          const lines = text.split(/\r?\n/).filter(l => l.trim() !== '');
+          if (lines.length < 1) throw new Error('Empty CSV');
+
+          function parseLine(line) {
+            const out = [];
+            let cur = '', inQ = false;
+            for (let i = 0; i < line.length; i++) {
+              const ch = line[i];
+              if (inQ) {
+                if (ch === '"') {
+                  if (line[i + 1] === '"') { cur += '"'; i++; }
+                  else inQ = false;
+                } else cur += ch;
+              } else {
+                if (ch === '"') inQ = true;
+                else if (ch === ',') { out.push(cur); cur = ''; }
+                else cur += ch;
+              }
+            }
+            out.push(cur);
+            return out;
+          }
+
+          const headers = parseLine(lines[0]).map(h => h.trim() || 'col');
+          const seen = {};
+          const colNames = headers.map((h, i) => {
+            let n = h.replace(/[^\w]/g, '_') || 'col' + i;
+            if (seen[n]) { seen[n]++; n = n + '_' + seen[n]; }
+            else seen[n] = 1;
+            return n;
+          });
+
+          const tableName = (file.name.replace(/\.csv$/i, '') || 'imported')
+            .replace(/[^\w]/g, '_')
+            .replace(/^(\d)/, '_$1') || 'imported';
+
+          let finalName = tableName;
+          let n = 1;
+          const existing = getTables();
+          while (existing.includes(finalName)) {
+            finalName = tableName + '_' + n++;
+          }
+
+          const colDefs = colNames.map(c => quoteIdent(c) + ' TEXT').join(', ');
+          db.run(`CREATE TABLE ${quoteIdent(finalName)} (${colDefs})`);
+
+          const placeholders = colNames.map(() => '?').join(',');
+          const stmt = db.prepare(`INSERT INTO ${quoteIdent(finalName)} VALUES (${placeholders})`);
+          for (let i = 1; i < lines.length; i++) {
+            const vals = parseLine(lines[i]);
+            while (vals.length < colNames.length) vals.push('');
+            stmt.run(vals.slice(0, colNames.length));
+          }
+          stmt.free();
+
+          refreshTableList();
+          selectTable(finalName);
+          toast(`Imported ${lines.length - 1} rows into "${finalName}"`, 'success');
+        } catch (e) {
+          toast('CSV import failed: ' + e.message, 'error');
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    function exportCsv() {
+      if (!currentTable) {
+        toast('Select a table first', 'error');
+        return;
+      }
+      try {
+        // Export computed values (not formulas)
+        loadGridData();
+        const { colNames, rows } = gridData;
+        function esc(v) {
+          if (v === null || v === undefined) return '';
+          const s = String(v);
+          if (/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+          return s;
+        }
+        let csv = colNames.map(esc).join(',') + '\n';
+        rows.forEach((row, ri) => {
+          const vals = row.values.map((raw, ci) => {
+            if (isFormula(raw)) {
+              return formatDisplay(evaluateFormula(raw));
+            }
+            return raw;
+          });
+          csv += vals.map(esc).join(',') + '\n';
+        });
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+        downloadBlob(blob, currentTable + '.csv');
+        toast('CSV exported (computed values)', 'success');
+      } catch (e) {
+        toast('Export failed: ' + e.message, 'error');
+      }
+    }
+
+    // ── Modal ──────────────────────────────────────────────────────────────
+    function showModal({ title, fields, onOk }) {
+      const overlay = document.createElement('div');
+      overlay.className = 'modal-overlay';
+      let fieldsHtml = fields.map(f => {
+        if (f.type === 'select') {
+          const opts = f.options.map(o => `<option value="${o}" ${o === f.value ? 'selected' : ''}>${o}</option>`).join('');
+          return `<label>${f.label}</label><select name="${f.name}">${opts}</select>`;
+        }
+        return `<label>${f.label}</label><input name="${f.name}" type="${f.type || 'text'}" value="${f.value || ''}" ${f.required ? 'required' : ''}>`;
+      }).join('');
+
+      overlay.innerHTML = `
+        <div class="modal">
+          <h3>${escapeHtml(title)}</h3>
+          <form id="modalForm">${fieldsHtml}
+            <div class="modal-actions">
+              <button type="button" class="btn" id="modalCancel">Cancel</button>
+              <button type="submit" class="btn primary">OK</button>
+            </div>
+          </form>
+        </div>`;
+      document.body.appendChild(overlay);
+
+      const form = overlay.querySelector('#modalForm');
+      form.querySelector('input, select')?.focus();
+      overlay.querySelector('#modalCancel').onclick = () => overlay.remove();
+      overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+      form.onsubmit = e => {
+        e.preventDefault();
+        const vals = {};
+        fields.forEach(f => {
+          vals[f.name] = form.querySelector(`[name="${f.name}"]`).value;
+        });
+        overlay.remove();
+        onOk(vals);
+      };
+    }
+
+    function promptNewTable() {
+      showModal({
+        title: 'Create Table',
+        fields: [
+          { name: 'name', label: 'Table name', type: 'text', required: true, value: 'Sheet1' },
+          { name: 'columns', label: 'Columns (comma-separated)', type: 'text', value: 'A, B, C' }
+        ],
+        onOk: (vals) => {
+          const name = vals.name.trim();
+          if (!name) return;
+          if (getTables().includes(name)) {
+            toast('Table already exists', 'error');
+            return;
+          }
+          const parts = vals.columns.split(',').map(s => s.trim()).filter(Boolean);
+          const columns = parts.map(p => {
+            const bits = p.split(/\s+/);
+            return { name: bits[0], type: bits[1] || 'TEXT' };
+          });
+          if (!columns.length) columns.push({ name: 'col1', type: 'TEXT' });
+          try {
+            createTable(name, columns);
+          } catch (e) {
+            toast('Create failed: ' + e.message, 'error');
+          }
+        }
+      });
+    }
+
+    // ── Events ─────────────────────────────────────────────────────────────
+    document.getElementById('btnNew').onclick = () => {
+      if (!confirm('Create a new empty database? Unsaved changes will be lost.')) return;
+      db = new SQL.Database();
+      currentTable = null;
+      refreshTableList();
+      renderGrid();
+      setStatus('New in-memory database');
+      toast('New database created');
+    };
+
+    document.getElementById('btnOpen').onclick = () => document.getElementById('fileOpen').click();
+    document.getElementById('btnEmptyOpen').onclick = () => document.getElementById('fileOpen').click();
+    document.getElementById('fileOpen').onchange = e => {
+      const f = e.target.files[0];
+      if (f) openDbFile(f);
+      e.target.value = '';
+    };
+
+    document.getElementById('btnSave').onclick = saveDb;
+    document.getElementById('btnImportCsv').onclick = () => document.getElementById('fileCsv').click();
+    document.getElementById('fileCsv').onchange = e => {
+      const f = e.target.files[0];
+      if (f) importCsv(f);
+      e.target.value = '';
+    };
+    document.getElementById('btnExportCsv').onclick = exportCsv;
+
+    document.getElementById('btnNewTable').onclick = promptNewTable;
+    document.getElementById('btnEmptyNewTable').onclick = promptNewTable;
+    document.getElementById('btnRefreshTables').onclick = refreshTableList;
+
+    document.getElementById('btnAddRow').onclick = addRow;
+    document.getElementById('btnAddCol').onclick = addColumn;
+    document.getElementById('btnDelRow').onclick = deleteRow;
+    document.getElementById('btnDelCol').onclick = deleteColumn;
+    document.getElementById('btnDropTable').onclick = dropTable;
+    document.getElementById('btnRecalc').onclick = () => {
+      evalCache.clear();
+      renderGrid();
+      toast('Formulas recalculated', 'success');
+    };
+
+    document.getElementById('btnRunSql').onclick = runSql;
+    document.getElementById('btnClearSql').onclick = () => {
+      document.getElementById('sqlInput').value = '';
+      document.getElementById('sqlResults').innerHTML = '<div class="msg">Results appear here.</div>';
+      lastQueryResult = null;
+      document.getElementById('btnSaveAsTable').disabled = true;
+    };
+    document.getElementById('btnSaveAsTable').onclick = saveResultAsTable;
+
+    document.getElementById('sqlInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        runSql();
+      }
+    });
+
+    document.getElementById('sqlToggle').onclick = () => {
+      sqlCollapsed = !sqlCollapsed;
+      const panel = document.getElementById('sqlPanel');
+      panel.classList.toggle('collapsed', sqlCollapsed);
+      document.getElementById('sqlBody').style.display = sqlCollapsed ? 'none' : 'flex';
+      document.getElementById('sqlToggleIcon').textContent = sqlCollapsed ? '▲' : '▼';
+    };
+
+    init();
+  </script>
+</body>
+</html>
