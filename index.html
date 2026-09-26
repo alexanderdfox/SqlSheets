@@ -704,6 +704,23 @@
       return isFinite(n) ? n : null;
     }
 
+    // Excel-style: blank/null → 0 in arithmetic; error codes propagate
+    function isErrorCode(v) {
+      return typeof v === 'string' && /^#(VALUE|REF|NAME|DIV\/0|NUM|N\/A|ERROR|NULL)[!?]?$/i.test(v.trim());
+    }
+    function toNum(v) {
+      if (isErrorCode(v)) throw new FormulaError(String(v).trim().toUpperCase().replace(/\?$/, '?'));
+      if (v === null || v === undefined || v === '') return 0;
+      if (typeof v === 'boolean') return v ? 1 : 0;
+      if (typeof v === 'number') {
+        if (!isFinite(v)) throw new FormulaError('#NUM!');
+        return v;
+      }
+      const n = parseNumber(v);
+      if (n === null) throw new FormulaError('#VALUE?');
+      return n;
+    }
+
     // Evaluate script= JavaScript cell. Helpers: cell, range, row, col, table, SUM, …
     function evaluateScript(src, rowIdx, colIdx, tableName) {
       const body = String(src).replace(/^\s*script\s*=/i, '').trim();
@@ -971,7 +988,14 @@
         while (peek() && peek().type === 'op' && ['=', '<>', '<', '>', '<=', '>='].includes(peek().value)) {
           const op = consume().value;
           const right = parseConcat();
-          const ln = parseNumber(left), rn = parseNumber(right);
+          if (isErrorCode(left)) throw new FormulaError(String(left).trim());
+          if (isErrorCode(right)) throw new FormulaError(String(right).trim());
+          // Excel: blank compares as 0 against numbers
+          const leftBlank = left === null || left === undefined || left === '';
+          const rightBlank = right === null || right === undefined || right === '';
+          let ln = parseNumber(left), rn = parseNumber(right);
+          if (leftBlank && rn !== null) ln = 0;
+          if (rightBlank && ln !== null) rn = 0;
           if (ln !== null && rn !== null) {
             if (op === '=') left = ln === rn;
             else if (op === '<>') left = ln !== rn;
@@ -1005,28 +1029,49 @@
         while (peek() && peek().type === 'op' && (peek().value === '+' || peek().value === '-')) {
           const op = consume().value;
           const right = parseMul();
-          const ln = parseNumber(left), rn = parseNumber(right);
-          if (ln === null || rn === null) {
-            if (op === '+') left = String(left ?? '') + String(right ?? '');
-            else throw new FormulaError('#VALUE?');
+          // + concatenates when either side is non-numeric text (and not blank/error)
+          if (op === '+') {
+            const ln = (left === null || left === undefined || left === '') ? 0 : parseNumber(left);
+            const rn = (right === null || right === undefined || right === '') ? 0 : parseNumber(right);
+            if (isErrorCode(left)) throw new FormulaError(String(left).trim());
+            if (isErrorCode(right)) throw new FormulaError(String(right).trim());
+            if (ln === null || rn === null) {
+              left = String(left ?? '') + String(right ?? '');
+            } else {
+              left = ln + rn;
+            }
           } else {
-            left = op === '+' ? ln + rn : ln - rn;
+            left = toNum(left) - toNum(right);
           }
         }
         return left;
       }
 
+      function startsPrimary(tok) {
+        if (!tok) return false;
+        if (tok.type === 'num' || tok.type === 'str' || tok.type === 'ident' ||
+            tok.type === 'cell' || tok.type === 'lparen') return true;
+        if (tok.type === 'op' && (tok.value === '+' || tok.value === '-')) return true;
+        return false;
+      }
+
       function parseMul() {
         let left = parsePower();
-        while (peek() && peek().type === 'op' && (peek().value === '*' || peek().value === '/')) {
+        while (peek() && peek().type === 'op' && (peek().value === '*' || peek().value === '/' || peek().value === '%')) {
+          // Binary % only when a right-hand operand follows (e.g. A1%B1).
+          // Bare trailing % is postfix percent, handled in parseUnary.
+          if (peek().value === '%' && !startsPrimary(tokens[pos + 1])) break;
           const op = consume().value;
           const right = parsePower();
-          const ln = parseNumber(left), rn = parseNumber(right);
-          if (ln === null || rn === null) throw new FormulaError('#VALUE?');
+          const ln = toNum(left), rn = toNum(right);
           if (op === '*') left = ln * rn;
-          else {
+          else if (op === '/') {
             if (rn === 0) throw new FormulaError('#DIV/0!');
             left = ln / rn;
+          } else {
+            // modulo
+            if (rn === 0) throw new FormulaError('#DIV/0!');
+            left = ln % rn;
           }
         }
         return left;
@@ -1037,9 +1082,7 @@
         while (peek() && peek().type === 'op' && peek().value === '^') {
           consume();
           const right = parseUnary();
-          const ln = parseNumber(left), rn = parseNumber(right);
-          if (ln === null || rn === null) throw new FormulaError('#VALUE?');
-          left = Math.pow(ln, rn);
+          left = Math.pow(toNum(left), toNum(right));
         }
         return left;
       }
@@ -1048,17 +1091,14 @@
         if (peek() && peek().type === 'op' && (peek().value === '+' || peek().value === '-')) {
           const op = consume().value;
           const v = parseUnary();
-          const n = parseNumber(v);
-          if (n === null) throw new FormulaError('#VALUE?');
+          const n = toNum(v);
           return op === '-' ? -n : n;
         }
-        // Postfix percent: 10% → 0.1  (Excel-compatible)
+        // Postfix percent: 10% → 0.1 when not followed by another operand
         let v = parsePrimary();
-        while (peek() && peek().type === 'op' && peek().value === '%') {
+        while (peek() && peek().type === 'op' && peek().value === '%' && !startsPrimary(tokens[pos + 1])) {
           consume();
-          const n = parseNumber(v);
-          if (n === null) throw new FormulaError('#VALUE?');
-          v = n / 100;
+          v = toNum(v) / 100;
         }
         return v;
       }
@@ -1418,11 +1458,16 @@
         if (visiting.has(key)) throw new FormulaError('#REF!', 'Circular reference');
         visiting.add(key);
         const savedTable = currentTable;
+        const savedGrid = gridData;
         try {
-          currentTable = info.table;
+          // Load target grid BEFORE switching currentTable. loadTableGrid short-
+          // circuits to the in-memory gridData when name === currentTable, so
+          // flipping currentTable first would return the wrong (stale) grid and
+          // break cross-table formulas like =MAX(products!I1:I7).
           if (info.table !== savedTable) {
             gridData = loadTableGrid(info.table);
           }
+          currentTable = info.table;
           let result;
           if (isSql(raw)) {
             result = evaluateSql(raw, info.rowIdx, info.colIdx, info.table);
@@ -1442,7 +1487,7 @@
         } finally {
           visiting.delete(key);
           currentTable = savedTable;
-          if (savedTable) gridData = loadTableGrid(savedTable);
+          gridData = savedGrid;
         }
       }
 
@@ -2285,7 +2330,8 @@
                 <tr><td><code>+</code> <code>-</code> <code>*</code> <code>/</code></td><td><code>=A1*B1+C1</code></td><td>Standard precedence</td></tr>
                 <tr><td><code>^</code></td><td><code>=2^8</code></td><td>Power</td></tr>
                 <tr><td>postfix <code>%</code></td><td><code>=10%</code> → 0.1</td><td>Percent (divide by 100)</td></tr>
-                <tr><td><code>MOD(a,b)</code></td><td><code>=MOD(10,3)</code></td><td>Remainder</td></tr>
+                <tr><td>binary <code>%</code></td><td><code>=A1%B1</code></td><td>Modulo (remainder)</td></tr>
+                <tr><td><code>MOD(a,b)</code></td><td><code>=MOD(A1,B1)</code></td><td>Same as binary %</td></tr>
                 <tr><td>unary <code>-</code></td><td><code>=-A1</code></td><td>Negation</td></tr>
               </table>
               <h4>Comparison</h4>
