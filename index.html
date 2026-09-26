@@ -670,9 +670,11 @@
         =AVERAGE(B:B)   whole column
         =IF(A1>10,"Yes","No")
         =ROUND(C1,2)
-        Nested formulas, basic arithmetic + - * / ^ %
+        Nested formulas, basic arithmetic + - * / ^ , postfix % (10% → 0.1)
+        String concat with & , booleans TRUE/FALSE
         Functions: SUM, AVERAGE/AVG, COUNT, COUNTA, MIN, MAX, IF, ROUND, ABS,
-                   POWER, SQRT, CONCAT, LEFT, RIGHT, LEN, UPPER, LOWER, VALUE
+                   POWER, SQRT, MOD, CONCAT, LEFT, RIGHT, LEN, UPPER, LOWER, VALUE,
+                   AND, OR, NOT
     */
     const FormulaError = class extends Error {
       constructor(code, msg) { super(msg || code); this.code = code; }
@@ -931,13 +933,14 @@
           continue;
         }
         // operators & punctuation
-        if ('+-*/^%(),:<>!='.includes(c)) {
+        if ('+-*/^%(),:<>!=&'.includes(c)) {
           // multi-char ops
           if (c === '<' && s[i+1] === '=') { tokens.push({ type: 'op', value: '<=' }); i += 2; continue; }
           if (c === '>' && s[i+1] === '=') { tokens.push({ type: 'op', value: '>=' }); i += 2; continue; }
           if (c === '<' && s[i+1] === '>') { tokens.push({ type: 'op', value: '<>' }); i += 2; continue; }
           if (c === '=' && tokens.length) { tokens.push({ type: 'op', value: '=' }); i++; continue; }
           if (c === '!') { tokens.push({ type: 'bang', value: '!' }); i++; continue; }
+          if (c === '&') { tokens.push({ type: 'op', value: '&' }); i++; continue; }
           tokens.push({ type: c === ':' ? 'colon' : (c === ',' ? 'comma' : (c === '(' ? 'lparen' : (c === ')' ? 'rparen' : 'op'))), value: c });
           i++;
           continue;
@@ -964,10 +967,10 @@
       function parseExpr() { return parseCompare(); }
 
       function parseCompare() {
-        let left = parseAdd();
+        let left = parseConcat();
         while (peek() && peek().type === 'op' && ['=', '<>', '<', '>', '<=', '>='].includes(peek().value)) {
           const op = consume().value;
-          const right = parseAdd();
+          const right = parseConcat();
           const ln = parseNumber(left), rn = parseNumber(right);
           if (ln !== null && rn !== null) {
             if (op === '=') left = ln === rn;
@@ -982,6 +985,17 @@
             else if (op === '<>') left = ls !== rs;
             else left = false;
           }
+        }
+        return left;
+      }
+
+      // & string concatenation (Excel-compatible)
+      function parseConcat() {
+        let left = parseAdd();
+        while (peek() && peek().type === 'op' && peek().value === '&') {
+          consume();
+          const right = parseAdd();
+          left = String(left ?? '') + String(right ?? '');
         }
         return left;
       }
@@ -1004,16 +1018,16 @@
 
       function parseMul() {
         let left = parsePower();
-        while (peek() && peek().type === 'op' && (peek().value === '*' || peek().value === '/' || peek().value === '%')) {
+        while (peek() && peek().type === 'op' && (peek().value === '*' || peek().value === '/')) {
           const op = consume().value;
           const right = parsePower();
           const ln = parseNumber(left), rn = parseNumber(right);
           if (ln === null || rn === null) throw new FormulaError('#VALUE?');
           if (op === '*') left = ln * rn;
-          else if (op === '/') {
+          else {
             if (rn === 0) throw new FormulaError('#DIV/0!');
             left = ln / rn;
-          } else left = ln % rn;
+          }
         }
         return left;
       }
@@ -1038,7 +1052,15 @@
           if (n === null) throw new FormulaError('#VALUE?');
           return op === '-' ? -n : n;
         }
-        return parsePrimary();
+        // Postfix percent: 10% → 0.1  (Excel-compatible)
+        let v = parsePrimary();
+        while (peek() && peek().type === 'op' && peek().value === '%') {
+          consume();
+          const n = parseNumber(v);
+          if (n === null) throw new FormulaError('#VALUE?');
+          v = n / 100;
+        }
+        return v;
       }
 
       // Parse optional Table! prefix, returns table name or null (current sheet)
@@ -1096,6 +1118,12 @@
         if (t.type === 'num') { consume(); return t.value; }
         if (t.type === 'str') { consume(); return t.value; }
 
+        // Boolean literals
+        if (t.type === 'ident' && (t.value === 'TRUE' || t.value === 'FALSE')) {
+          consume();
+          return t.value === 'TRUE';
+        }
+
         // Table!A1 or Table!A1:B2
         if (t.type === 'ident' && tokens[pos + 1] && tokens[pos + 1].type === 'bang') {
           const table = parseTablePrefix();
@@ -1138,8 +1166,14 @@
         throw new FormulaError('#NAME?', 'Unexpected token');
       }
 
+      function isArgTerminator(tok) {
+        return !tok || tok.type === 'comma' || tok.type === 'rparen';
+      }
+
       function parseArg() {
-        // Prefer table!range or cell:cell as a single range arg
+        // Prefer table!range or cell:cell as a single range arg — only when
+        // the range/cell is a complete argument (next token is , or ) or EOF).
+        // This prevents treating A1 in A1>5 as a finished arg.
         const save = pos;
         try {
           let table = null;
@@ -1151,6 +1185,11 @@
             if (peek() && peek().type === 'colon') {
               consume();
               const second = consume();
+              if (!isArgTerminator(peek())) {
+                // Not a bare range arg (e.g. A1:B2+1) — fall through to full expr
+                pos = save;
+                return parseExpr();
+              }
               if (first.type === 'cell' && second.type === 'cell') {
                 return getRangeValues(first.value, second.value, table);
               }
@@ -1161,9 +1200,12 @@
                 const m = /^([A-Z]+)([0-9]+)$/.exec(second.value);
                 if (m) return getRangeValues(first.value + '1', m[1] + m[2], table);
               }
-            }
-            // single cell with optional table
-            if (first.type === 'cell') {
+              if (first.type === 'cell' && second.type === 'ident') {
+                const m = /^([A-Z]+)([0-9]+)$/.exec(first.value);
+                if (m) return getRangeValues(m[1] + m[2], second.value + '1048576', table);
+              }
+            } else if (first.type === 'cell' && isArgTerminator(peek())) {
+              // single cell with optional table — only if complete arg
               return getCellValue(first.value, table);
             }
           }
@@ -1229,6 +1271,12 @@
             const a = parseNumber(args[0]), b = parseNumber(args[1]);
             if (a === null || b === null) throw new FormulaError('#VALUE?');
             return Math.pow(a, b);
+          }
+          case 'MOD': {
+            const a = parseNumber(args[0]), b = parseNumber(args[1]);
+            if (a === null || b === null) throw new FormulaError('#VALUE?');
+            if (b === 0) throw new FormulaError('#DIV/0!');
+            return a % b;
           }
           case 'CONCAT': case 'CONCATENATE':
             return flatten(args).map(v => v == null ? '' : String(v)).join('');
@@ -2236,7 +2284,8 @@
                 <tr><th>Op</th><th>Example</th><th>Notes</th></tr>
                 <tr><td><code>+</code> <code>-</code> <code>*</code> <code>/</code></td><td><code>=A1*B1+C1</code></td><td>Standard precedence</td></tr>
                 <tr><td><code>^</code></td><td><code>=2^8</code></td><td>Power</td></tr>
-                <tr><td><code>%</code></td><td><code>=A1%B1</code></td><td>Modulo</td></tr>
+                <tr><td>postfix <code>%</code></td><td><code>=10%</code> → 0.1</td><td>Percent (divide by 100)</td></tr>
+                <tr><td><code>MOD(a,b)</code></td><td><code>=MOD(10,3)</code></td><td>Remainder</td></tr>
                 <tr><td>unary <code>-</code></td><td><code>=-A1</code></td><td>Negation</td></tr>
               </table>
               <h4>Comparison</h4>
@@ -2246,7 +2295,9 @@
                     <td><code>=IF(A1&gt;=10,"Yes","No")</code></td></tr>
               </table>
               <h4>Strings &amp; numbers</h4>
-              <p>Literals: <code>123</code>, <code>"hello"</code>. <code>+</code> concatenates if either side is non-numeric text.</p>
+              <p>Literals: <code>123</code>, <code>"hello"</code>, <code>TRUE</code>, <code>FALSE</code>.
+              <code>&amp;</code> concatenates strings: <code>=A1&amp;"-"&amp;B1</code>.
+              <code>+</code> also concatenates if either side is non-numeric text.</p>
             </div>
 
             <div class="help-section" data-section="funcs">
@@ -2274,6 +2325,7 @@
                 <tr><td><code>ABS(n)</code></td><td><code>=ABS(A1-B1)</code></td></tr>
                 <tr><td><code>SQRT(n)</code></td><td><code>=SQRT(A1)</code></td></tr>
                 <tr><td><code>POWER(a,b)</code> / <code>POW</code></td><td><code>=POWER(2,10)</code></td></tr>
+                <tr><td><code>MOD(a,b)</code></td><td><code>=MOD(10,3)</code> → 1</td></tr>
               </table>
               <h4>Text</h4>
               <table>
