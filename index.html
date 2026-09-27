@@ -13,22 +13,26 @@
   <title>SQLSheet — SQLite + Spreadsheet + Formulas</title>
   <style>
     :root {
-      --bg: #0f1419;
-      --surface: #1a2332;
-      --surface2: #243044;
-      --border: #2d3a4f;
-      --text: #e7ecf3;
-      --text-muted: #8b9bb4;
+      --bg: #0b0f14;
+      --surface: #151b24;
+      --surface2: #1e2736;
+      --border: #2a3548;
+      --text: #e8eef7;
+      --text-muted: #8494ad;
       --accent: #3b82f6;
       --accent-hover: #2563eb;
       --success: #22c55e;
       --danger: #ef4444;
       --warning: #f59e0b;
       --formula: #a78bfa;
-      --header-h: 48px;
-      --sidebar-w: 220px;
-      --sql-h: 180px;
-      --fx-h: 36px;
+      --script: #34d399;
+      --sql: #38bdf8;
+      --header-h: 44px;
+      --sidebar-w: 200px;
+      --sql-h: 168px;
+      --fx-h: 34px;
+      --live: #22c55e;
+      --dead: #1a2332;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -46,47 +50,67 @@
       border-bottom: 1px solid var(--border);
       display: flex;
       align-items: center;
-      padding: 0 12px;
-      gap: 8px;
+      padding: 0 10px;
+      gap: 6px;
       flex-shrink: 0;
     }
     .logo {
       font-weight: 700;
-      font-size: 15px;
+      font-size: 14px;
       color: var(--accent);
-      margin-right: 12px;
+      margin-right: 8px;
       white-space: nowrap;
     }
-    .logo span { color: var(--text-muted); font-weight: 400; }
+    .logo span { color: var(--text-muted); font-weight: 400; font-size: 12px; }
     .btn {
       background: var(--surface2);
       border: 1px solid var(--border);
       color: var(--text);
-      padding: 5px 10px;
+      padding: 4px 9px;
       border-radius: 6px;
       font-size: 12px;
       cursor: pointer;
       display: inline-flex;
       align-items: center;
-      gap: 5px;
-      transition: background .15s, border-color .15s;
+      gap: 4px;
+      transition: background .12s, border-color .12s, transform .08s;
       white-space: nowrap;
     }
     .btn:hover { background: var(--border); }
+    .btn:active { transform: scale(0.97); }
     .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
     .btn.primary:hover { background: var(--accent-hover); }
     .btn.danger { background: transparent; border-color: var(--danger); color: var(--danger); }
     .btn.danger:hover { background: var(--danger); color: #fff; }
-    .btn:disabled { opacity: .45; cursor: not-allowed; }
-    .sep { width: 1px; height: 22px; background: var(--border); margin: 0 4px; }
+    .btn.success { background: transparent; border-color: var(--success); color: var(--success); }
+    .btn.success:hover, .btn.success.active { background: var(--success); color: #0b0f14; border-color: var(--success); }
+    .btn:disabled { opacity: .4; cursor: not-allowed; transform: none; }
+    .sep { width: 1px; height: 20px; background: var(--border); margin: 0 3px; }
     .spacer { flex: 1; }
     .status {
       font-size: 11px;
       color: var(--text-muted);
-      max-width: 300px;
+      max-width: 260px;
       overflow: hidden;
       text-overflow: ellipsis;
       white-space: nowrap;
+    }
+    .sim-controls {
+      display: none;
+      align-items: center;
+      gap: 4px;
+      margin-left: 4px;
+      padding: 2px 6px;
+      background: var(--surface2);
+      border-radius: 8px;
+      border: 1px solid var(--border);
+    }
+    .sim-controls.visible { display: inline-flex; }
+    .sim-controls .btn { padding: 3px 8px; font-size: 11px; }
+    .sim-controls label { font-size: 11px; color: var(--text-muted); display: flex; align-items: center; gap: 4px; }
+    .sim-controls select {
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 4px; padding: 2px 4px; font-size: 11px;
     }
     .main { flex: 1; display: flex; overflow: hidden; }
     .sidebar {
@@ -187,9 +211,13 @@
     .scripts-badge {
       font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border);
       color: var(--text-muted); cursor: pointer; white-space: nowrap; user-select: none;
+      transition: border-color .15s, color .15s, background .15s;
     }
-    .scripts-badge.on { border-color: var(--warning); color: var(--warning); }
-    .scripts-badge.off { border-color: var(--success); color: var(--success); }
+    .scripts-badge.on { border-color: var(--warning); color: var(--warning); background: rgba(245,158,11,.08); }
+    .scripts-badge.off { border-color: var(--success); color: var(--success); background: rgba(34,197,94,.06); }
+    .demo-btns { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 4px; }
+    .empty h2 { letter-spacing: -0.02em; }
+    .empty .hint { font-size: 12px; color: var(--text-muted); opacity: .85; max-width: 480px; }
     .grid-area {
       flex: 1;
       position: relative;
@@ -218,11 +246,19 @@
     table.grid th, table.grid td {
       border: 1px solid var(--border);
       padding: 0;
-      height: 28px;
-      min-width: 90px;
-      max-width: 280px;
+      height: 26px;
+      min-width: 72px;
+      max-width: 260px;
       position: relative;
     }
+    table.grid td.cell-live {
+      background: rgba(34, 197, 94, 0.22) !important;
+    }
+    table.grid td.cell-live input.cell { color: #86efac; font-weight: 600; }
+    table.grid td.cell-dead {
+      background: rgba(15, 20, 25, 0.6) !important;
+    }
+    table.grid td.cell-dead input.cell { color: var(--text-muted); }
     table.grid th {
       background: var(--surface2);
       font-size: 11px;
@@ -539,15 +575,27 @@
 </head>
 <body>
   <header>
-    <div class="logo">SQLSheet <span>· SQLite + Excel formulas</span></div>
+    <div class="logo">SQLSheet <span>· SQLite + formulas</span></div>
     <button class="btn" id="btnNew" title="New empty database">New</button>
-    <button class="btn" id="btnOpen" title="Import / open a .sqlite or .db file">Import SQLite</button>
-    <button class="btn" id="btnSave" title="Export entire database as .sqlite file">Export SQLite</button>
+    <button class="btn" id="btnOpen" title="Import / open a .sqlite or .db file">Import</button>
+    <button class="btn" id="btnSave" title="Export entire database as .sqlite file">Export</button>
     <div class="sep"></div>
-    <button class="btn" id="btnImportCsv" title="Import CSV into a new table">Import CSV</button>
-    <button class="btn" id="btnExportCsv" title="Export current table as CSV">Export CSV</button>
+    <button class="btn" id="btnImportCsv" title="Import CSV into a new table">CSV ↕</button>
+    <button class="btn" id="btnExportCsv" title="Export current table as CSV">CSV ↑</button>
     <div class="sep"></div>
     <button class="btn primary" id="btnNewTable">+ Table</button>
+    <div class="sim-controls" id="simControls" title="Simulation controls (best with script= cells)">
+      <button class="btn" id="btnStep" title="Recalculate once (Space)">Step</button>
+      <button class="btn success" id="btnPlay" title="Auto-recalculate">▶ Play</button>
+      <label>ms <select id="playInterval" title="Play interval">
+        <option value="80">80</option>
+        <option value="150" selected>150</option>
+        <option value="300">300</option>
+        <option value="500">500</option>
+        <option value="1000">1s</option>
+      </select></label>
+      <button class="btn" id="btnBake" title="Write computed values into cells as plain numbers (useful for Game of Life next-gen)">Bake</button>
+    </div>
     <div class="spacer"></div>
     <span class="scripts-badge off" id="scriptsBadge" title="Click to toggle script= execution for this session">Scripts: off</span>
     <span class="status" id="status">Loading SQLite…</span>
@@ -565,14 +613,14 @@
     <div class="content">
       <div class="table-bar" id="tableBar" style="display:none">
         <span class="name" id="currentTableName"></span>
-        <button class="btn" id="btnAddRow">+ Row</button>
-        <button class="btn" id="btnAddCol">+ Column</button>
-        <button class="btn danger" id="btnDelRow" disabled>− Row</button>
-        <button class="btn danger" id="btnDelCol" disabled>− Column</button>
+        <button class="btn" id="btnAddRow" title="Add row">+ Row</button>
+        <button class="btn" id="btnAddCol" title="Add column">+ Col</button>
+        <button class="btn danger" id="btnDelRow" disabled title="Delete selected row">− Row</button>
+        <button class="btn danger" id="btnDelCol" disabled title="Delete selected column">− Col</button>
         <div class="sep"></div>
-        <button class="btn" id="btnRecalc" title="Recalculate all formulas">ƒx Recalc</button>
-        <button class="btn" id="btnFormulaHelp" title="Formula & script help">ƒx Help</button>
-        <button class="btn" id="btnDropTable" title="Drop table">Drop Table</button>
+        <button class="btn" id="btnRecalc" title="Recalculate all formulas (Space)">ƒx Recalc</button>
+        <button class="btn" id="btnFormulaHelp" title="Formula & script help">Help</button>
+        <button class="btn danger" id="btnDropTable" title="Drop table">Drop</button>
       </div>
       <div class="fx-bar" id="fxBar" style="display:none">
         <span class="fx-label">ƒx</span>
@@ -589,14 +637,17 @@
         <div class="grid-wrap" id="gridWrap"></div>
         <div class="empty" id="emptyState">
           <h2>Welcome to SQLSheet</h2>
-          <p>SQLite database + spreadsheet formulas.<br>
+          <p>SQLite + spreadsheet formulas + JS scripts — fully offline.<br>
             <code style="color:var(--formula)">=SUM(A1:A10)</code> ·
-            <code style="color:#34d399">script=cell('A1')*2</code> ·
-            <code style="color:#38bdf8">sql=SELECT COUNT(*) FROM employees</code></p>
-          <div style="display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;justify-content:center">
-            <button class="btn primary" id="btnEmptyNewTable">Create first table</button>
-            <button class="btn" id="btnEmptyOpen">Import SQLite file</button>
-            <button class="btn" id="btnEmptyHelp">ƒx Formula help</button>
+            <code style="color:var(--script)">script=cell('A1')*2</code> ·
+            <code style="color:var(--sql)">sql=SELECT COUNT(*) FROM t</code></p>
+          <p class="hint">Great for data, and for grid games (Game of Life, cellular automata). Enable Scripts, then use Step / Play.</p>
+          <div class="demo-btns">
+            <button class="btn primary" id="btnEmptyNewTable">Create table</button>
+            <button class="btn" id="btnEmptyOpen">Import SQLite</button>
+            <button class="btn success" id="btnLoadLife" title="Load Conway's Game of Life demo">Game of Life</button>
+            <button class="btn" id="btnLoadDemo" title="Load full sample database">Sample data</button>
+            <button class="btn" id="btnEmptyHelp">Formula help</button>
           </div>
         </div>
       </div>
@@ -653,6 +704,12 @@
     // SECURITY: script= execution is OFF until the user enables it for this session
     // (especially after importing a file that contains script= cells). Default-deny.
     let scriptsEnabled = false;
+    let playTimer = null;
+    let playRunning = false;
+    const DEMO_URLS = {
+      life: 'https://raw.githubusercontent.com/alexanderdfox/SqlSheets/main/game_of_life.sqlite',
+      full: 'https://raw.githubusercontent.com/alexanderdfox/SqlSheets/main/demo_full.sqlite'
+    };
     const SCRIPT_MAX_LEN = 8000;
     // Cell formatting: key = "rowid|colName" → { text_color, bg_color }
     let fmtCache = new Map();
@@ -1733,10 +1790,123 @@
     function setScriptsEnabled(on) {
       scriptsEnabled = !!on;
       updateScriptsBadge();
+      updateSimControls();
       evalCache.clear();
       if (currentTable) {
         loadGridData();
         renderGrid();
+      }
+      if (!scriptsEnabled) stopPlay();
+    }
+
+    function updateSimControls() {
+      const el = document.getElementById('simControls');
+      if (!el) return;
+      el.classList.toggle('visible', scriptsEnabled && !!currentTable);
+    }
+
+    function doRecalc() {
+      clearTableCaches();
+      evalCache.clear();
+      if (currentTable) loadGridData();
+      renderGrid();
+    }
+
+    function startPlay() {
+      if (!scriptsEnabled) {
+        toast('Enable Scripts first', 'error');
+        return;
+      }
+      stopPlay();
+      playRunning = true;
+      const btn = document.getElementById('btnPlay');
+      if (btn) { btn.textContent = '■ Stop'; btn.classList.add('active'); }
+      const ms = parseInt(document.getElementById('playInterval')?.value || '150', 10);
+      playTimer = setInterval(() => {
+        if (!scriptsEnabled || !currentTable) { stopPlay(); return; }
+        doRecalc();
+      }, Math.max(50, ms));
+      setStatus('Playing · recalc every ' + ms + 'ms');
+    }
+
+    function stopPlay() {
+      playRunning = false;
+      if (playTimer) { clearInterval(playTimer); playTimer = null; }
+      const btn = document.getElementById('btnPlay');
+      if (btn) { btn.textContent = '▶ Play'; btn.classList.remove('active'); }
+    }
+
+    function togglePlay() {
+      if (playRunning) stopPlay();
+      else startPlay();
+    }
+
+    /** Write currently displayed computed values back into the table as plain values. */
+    function bakeComputedValues() {
+      if (!currentTable || !gridData) {
+        toast('No table open', 'error');
+        return;
+      }
+      if (!scriptsEnabled) {
+        toast('Enable Scripts so values can be computed before baking', 'error');
+        return;
+      }
+      const { colNames, rows } = gridData;
+      let n = 0;
+      try {
+        db.run('BEGIN');
+        rows.forEach((row, ri) => {
+          colNames.forEach((col, ci) => {
+            const raw = row.values[ci];
+            if (!isComputed(raw)) return;
+            const val = computeCellValue(raw, ri, ci, currentTable);
+            if (val === null || val === undefined || (typeof val === 'string' && val.startsWith('#'))) return;
+            const store = (typeof val === 'number' && isFinite(val)) ? val : String(val);
+            db.run(
+              `UPDATE ${quoteIdent(currentTable)} SET ${quoteIdent(col)} = ? WHERE rowid = ?`,
+              [store, row.rowid]
+            );
+            n++;
+          });
+        });
+        db.run('COMMIT');
+        evalCache.clear();
+        clearTableCaches();
+        loadGridData();
+        renderGrid();
+        toast('Baked ' + n + ' computed cell(s) into plain values', 'success');
+        setStatus('Baked ' + n + ' cells');
+      } catch (e) {
+        try { db.run('ROLLBACK'); } catch (_) {}
+        toast('Bake failed: ' + e.message, 'error');
+      }
+    }
+
+    async function loadDemoFromUrl(url, label) {
+      try {
+        setStatus('Loading ' + label + '…');
+        const res = await fetch(url);
+        if (!res.ok) throw new Error('HTTP ' + res.status);
+        const buf = await res.arrayBuffer();
+        const u8 = new Uint8Array(buf);
+        db = new SQL.Database(u8);
+        dbFileName = label.replace(/\s+/g, '_').toLowerCase() + '.sqlite';
+        currentTable = null;
+        evalCache.clear();
+        clearTableCaches();
+        afterImportScriptsCheck(label);
+        const tables = getTables();
+        if (tables.length) selectTable(tables[0]);
+        else {
+          refreshTableList();
+          renderGrid();
+        }
+        updateSimControls();
+        toast('Loaded ' + label, 'success');
+        setStatus('Loaded ' + label + (scriptsEnabled ? ' · scripts on' : ' · enable Scripts for simulation'));
+      } catch (e) {
+        toast('Could not load demo: ' + e.message, 'error');
+        setStatus('Load failed');
       }
     }
 
@@ -1841,6 +2011,7 @@
       document.getElementById('fxInput').value = '';
       refreshTableList();
       renderGrid();
+      updateSimControls();
     }
 
     function getTableInfo(name) {
@@ -1918,15 +2089,17 @@
             const letter = colIndexToLetter(ci);
             const ref = letter + (ri + 1);
             let display, isF = false, isS = false, isQ = false, isErr = false;
+            let computedVal = null;
             if (isComputed(raw)) {
               isF = isFormula(raw);
               isS = isScript(raw);
               isQ = isSql(raw);
-              const computed = computeCellValue(raw, ri, ci, currentTable);
-              display = formatDisplay(computed);
-              isErr = typeof computed === 'string' && String(computed).startsWith('#');
+              computedVal = computeCellValue(raw, ri, ci, currentTable);
+              display = formatDisplay(computedVal);
+              isErr = typeof computedVal === 'string' && String(computedVal).startsWith('#');
             } else {
               display = raw === null || raw === undefined ? '' : String(raw);
+              computedVal = raw;
             }
             const cls = [isF ? 'is-formula' : '', isS ? 'is-script' : '', isQ ? 'is-sql' : '', isErr ? 'is-error' : ''].filter(Boolean).join(' ');
             const fmt = getCellFmt(row.rowid, colNames[ci]);
@@ -1934,9 +2107,16 @@
             if (fmt.text_color) styleParts.push('color:' + fmt.text_color);
             if (fmt.bg_color) styleParts.push('background-color:' + fmt.bg_color);
             const styleAttr = styleParts.length ? ` style="${escapeHtml(styleParts.join(';'))}"` : '';
+            // Auto-tint binary 0/1 cells (great for Game of Life / cellular automata)
+            let lifeCls = '';
+            if (!fmt.bg_color && !isErr) {
+              const n = Number(computedVal);
+              if (computedVal === 1 || computedVal === '1' || n === 1) lifeCls = ' cell-live';
+              else if (computedVal === 0 || computedVal === '0' || n === 0) lifeCls = ' cell-dead';
+            }
             const tdStyle = fmt.bg_color ? ` style="background-color:${escapeHtml(fmt.bg_color)}"` : '';
             const extraCls = (fmt.text_color ? ' has-text-color' : '') + (fmt.bg_color ? ' has-bg' : '');
-            html += `<td data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${tdStyle}>
+            html += `<td class="${lifeCls.trim()}" data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${tdStyle}>
               <input class="cell ${cls}${extraCls}" value="${escapeHtml(display)}"${styleAttr}
                      data-raw="${escapeHtml(raw ?? '')}"
                      data-rowid="${row.rowid}" data-col="${escapeHtml(colNames[ci])}"
@@ -2853,11 +3033,29 @@
     document.getElementById('btnDelCol').onclick = deleteColumn;
     document.getElementById('btnDropTable').onclick = dropTable;
     document.getElementById('btnRecalc').onclick = () => {
-      clearTableCaches();
-      if (currentTable) loadGridData();
-      renderGrid();
+      doRecalc();
       toast('Formulas recalculated', 'success');
     };
+    document.getElementById('btnStep').onclick = () => {
+      doRecalc();
+      setStatus('Step');
+    };
+    document.getElementById('btnPlay').onclick = () => togglePlay();
+    document.getElementById('btnBake').onclick = () => bakeComputedValues();
+    document.getElementById('playInterval').onchange = () => {
+      if (playRunning) startPlay();
+    };
+    document.getElementById('btnLoadLife').onclick = () => loadDemoFromUrl(DEMO_URLS.life, 'Game of Life');
+    document.getElementById('btnLoadDemo').onclick = () => loadDemoFromUrl(DEMO_URLS.full, 'Sample data');
+    document.addEventListener('keydown', e => {
+      if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) return;
+      if (e.code === 'Space') {
+        e.preventDefault();
+        doRecalc();
+      } else if (e.key === 'p' || e.key === 'P') {
+        if (scriptsEnabled) togglePlay();
+      }
+    });
     document.getElementById('btnFormulaHelp').onclick = showFormulaHelp;
     document.getElementById('helpHint').onclick = showFormulaHelp;
     document.getElementById('btnFmtApply').onclick = applyFmtToSelection;
