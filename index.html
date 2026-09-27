@@ -2093,6 +2093,7 @@
         title: 'JavaScript cells detected',
         message: 'This file contains JavaScript cells (script=). Running them can execute code in your browser.\n\nRecommended: keep scripts disabled unless you trust the source.\n\nFile: ' + label,
         fields: [],
+        showCancel: false,
         okLabel: 'Disable scripts (safe)',
         altLabel: 'Enable scripts for this session',
         onOk: function () { setScriptsEnabled(false); },
@@ -2824,8 +2825,9 @@
     }
 
     // ── Modal ──────────────────────────────────────────────────────────────
-    function showModal({ title, fields, onOk, onAlt, onCancel, message, okLabel, altLabel, cancelLabel }) {
+    function showModal({ title, fields, onOk, onAlt, onCancel, message, okLabel, altLabel, cancelLabel, showCancel }) {
       fields = fields || [];
+      const allowCancel = showCancel !== false;
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
       const msgHtml = message
@@ -2833,6 +2835,9 @@
         : '';
       const altBtn = (onAlt && altLabel)
         ? `<button type="button" class="btn" id="modalAlt">${escapeHtml(altLabel)}</button>`
+        : '';
+      const cancelBtn = allowCancel
+        ? `<button type="button" class="btn" id="modalCancel">${escapeHtml(cancelLabel || 'Cancel')}</button>`
         : '';
       const fieldsHtml = fields.map(f => {
         if (f.type === 'select') {
@@ -2851,7 +2856,7 @@
           '<form id="modalForm">' +
             fieldsHtml +
             '<div class="modal-actions">' +
-              '<button type="button" class="btn" id="modalCancel">' + escapeHtml(cancelLabel || 'Cancel') + '</button>' +
+              cancelBtn +
               altBtn +
               '<button type="submit" class="btn primary">' + escapeHtml(okLabel || 'OK') + '</button>' +
             '</div>' +
@@ -2862,10 +2867,13 @@
       const form = overlay.querySelector('#modalForm');
       form.querySelector('input, select')?.focus();
       const close = () => overlay.remove();
-      overlay.querySelector('#modalCancel').onclick = () => {
-        close();
-        if (onCancel) onCancel();
-      };
+      const cancelEl = overlay.querySelector('#modalCancel');
+      if (cancelEl) {
+        cancelEl.onclick = () => {
+          close();
+          if (onCancel) onCancel();
+        };
+      }
       const altEl = overlay.querySelector('#modalAlt');
       if (altEl) {
         altEl.onclick = () => {
@@ -2873,7 +2881,10 @@
           if (onAlt) onAlt();
         };
       }
-      overlay.addEventListener('click', e => { if (e.target === overlay) { close(); if (onCancel) onCancel(); } });
+      // Only dismiss by overlay click when Cancel is available
+      if (allowCancel) {
+        overlay.addEventListener('click', e => { if (e.target === overlay) { close(); if (onCancel) onCancel(); } });
+      }
       form.onsubmit = e => {
         e.preventDefault();
         const vals = {};
