@@ -3,6 +3,13 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <!--
+    Security model (offline-first local tool — no server, data stays in the browser):
+    - script= cells are sandboxed and OFF by default after import until the user enables them.
+    - sql.js is pinned with Subresource Integrity; CSP restricts unexpected remote code.
+    - Cell colors live in meta table _sqlsheets_fmt (excluded from the Tables list).
+  -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net blob:; img-src 'self' data: blob:; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
   <title>SQLSheet — SQLite + Spreadsheet + Formulas</title>
   <style>
     :root {
@@ -21,7 +28,7 @@
       --header-h: 48px;
       --sidebar-w: 220px;
       --sql-h: 180px;
-      --fx-h: 32px;
+      --fx-h: 36px;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -166,6 +173,23 @@
     }
     .fx-bar input:focus { border-color: var(--formula); }
     .fx-bar input.formula { color: var(--formula); }
+    .fx-bar .fmt-tools {
+      display: flex; align-items: center; gap: 6px; flex-shrink: 0; margin-left: 4px;
+    }
+    .fx-bar .fmt-tools label {
+      font-size: 11px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 3px;
+    }
+    .fx-bar .fmt-tools input[type=color] {
+      width: 26px; height: 22px; padding: 0; border: 1px solid var(--border);
+      border-radius: 4px; background: var(--bg); cursor: pointer;
+    }
+    .fx-bar .fmt-tools .btn { padding: 3px 8px; font-size: 11px; }
+    .scripts-badge {
+      font-size: 11px; padding: 3px 8px; border-radius: 6px; border: 1px solid var(--border);
+      color: var(--text-muted); cursor: pointer; white-space: nowrap; user-select: none;
+    }
+    .scripts-badge.on { border-color: var(--warning); color: var(--warning); }
+    .scripts-badge.off { border-color: var(--success); color: var(--success); }
     .grid-area {
       flex: 1;
       position: relative;
@@ -525,6 +549,7 @@
     <div class="sep"></div>
     <button class="btn primary" id="btnNewTable">+ Table</button>
     <div class="spacer"></div>
+    <span class="scripts-badge off" id="scriptsBadge" title="Click to toggle script= execution for this session">Scripts: off</span>
     <span class="status" id="status">Loading SQLite…</span>
   </header>
 
@@ -553,6 +578,12 @@
         <span class="fx-label">ƒx</span>
         <span class="fx-ref" id="fxRef">—</span>
         <input id="fxInput" placeholder="Value · =formula · script=JS · sql=SELECT …" spellcheck="false">
+        <div class="fmt-tools" id="fmtTools" title="Cell formatting stored in _sqlsheets_fmt (survives SQLite export/import)">
+          <label>Text <input type="color" id="fmtTextColor" value="#e7ecf3"></label>
+          <label>Fill <input type="color" id="fmtBgColor" value="#1a2332"></label>
+          <button type="button" class="btn" id="btnFmtApply" title="Apply colors to selected cell">Apply</button>
+          <button type="button" class="btn" id="btnFmtClear" title="Clear colors on selected cell">Clear</button>
+        </div>
       </div>
       <div class="grid-area" id="gridArea">
         <div class="grid-wrap" id="gridWrap"></div>
@@ -599,7 +630,10 @@
   <input type="file" id="fileOpen" accept=".sqlite,.sqlite3,.db,.db3,.sdb,.s3db,application/x-sqlite3,application/vnd.sqlite3">
   <input type="file" id="fileCsv" accept=".csv,text/csv">
 
-  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/sql-wasm.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/sql.js@1.14.2/dist/sql-wasm.js"
+          integrity="sha384-7Zym2PlgXfg8ap8cqJUwlZrLl+VEwt0NVbzYfhH28IWLnSpAgQOnSCY2+EXo5MtM"
+          crossorigin="anonymous"
+          referrerpolicy="no-referrer"></script>
   <script>
     // ── State ──────────────────────────────────────────────────────────────
     let SQL = null;
@@ -616,6 +650,13 @@
     let evalCache = new Map();
     // Raw grid data for formula engine: { colNames: [], rows: [ {rowid, values: []} ] }
     let gridData = null;
+    // SECURITY: script= execution is OFF until the user enables it for this session
+    // (especially after importing a file that contains script= cells). Default-deny.
+    let scriptsEnabled = false;
+    const SCRIPT_MAX_LEN = 8000;
+    // Cell formatting: key = "rowid|colName" → { text_color, bg_color }
+    let fmtCache = new Map();
+    const FMT_TABLE = '_sqlsheets_fmt';
 
     // ── Helpers ────────────────────────────────────────────────────────────
     function toast(msg, type = '') {
@@ -721,10 +762,22 @@
       return n;
     }
 
-    // Evaluate script= JavaScript cell. Helpers: cell, range, row, col, table, SUM, …
+    // ── Security: sandboxed script= evaluation ─────────────────────────────
+    // Model: script= is gated by scriptsEnabled (default OFF after import of files
+    // that contain script=). Execution uses new Function with a locked-down parameter
+    // list only — window/document/fetch/etc. are never passed. Body length is capped.
+    // Source is scanned for common escape-hatch identifiers. This is defense-in-depth
+    // for a local offline tool, not multi-tenant isolation.
     function evaluateScript(src, rowIdx, colIdx, tableName) {
+      if (!scriptsEnabled) return '#SCRIPT_DISABLED';
       const body = String(src).replace(/^\s*script\s*=/i, '').trim();
       if (!body) return null;
+      if (body.length > SCRIPT_MAX_LEN) return '#JS! script too long (max ' + SCRIPT_MAX_LEN + ')';
+
+      // Block common escape hatches in source text (defense in depth)
+      if (/\b(window|document|globalThis|self|frames|parent|top|Function|eval|importScripts|fetch|XMLHttpRequest|WebSocket|localStorage|sessionStorage|indexedDB|openDatabase|process|require|Deno|Bun)\b/.test(body)) {
+        return '#JS! blocked identifier';
+      }
 
       const { getCellValue, getRangeValues } = makeSheetAccessors();
 
@@ -735,13 +788,11 @@
         if (bang > 0) {
           return getCellValue(s.slice(bang + 1).toUpperCase(), s.slice(0, bang));
         }
-        // Relative: bare number means same column different row? Keep simple — require A1 style
         return getCellValue(s.toUpperCase(), tableName || currentTable);
       }
 
       function range(a, b) {
         if (b != null) {
-          // range('A1','B10') or range('t!A1','t!B10')
           let t1 = tableName || currentTable, r1 = String(a), t2 = t1, r2 = String(b);
           if (String(a).includes('!')) {
             const p = String(a).split('!');
@@ -754,14 +805,13 @@
           if (t1 !== t2) throw new Error('Range tables must match');
           return getRangeValues(r1.toUpperCase(), r2.toUpperCase(), t1);
         }
-        // range('A1:B10') or range('table!A1:B10')
         const s = String(a).trim();
         let table = tableName || currentTable;
         let spec = s;
-        const bang = s.indexOf('!');
-        if (bang > 0) {
-          table = s.slice(0, bang);
-          spec = s.slice(bang + 1);
+        if (s.includes('!')) {
+          const p = s.split('!');
+          table = p[0];
+          spec = p[1];
         }
         const parts = spec.split(':');
         if (parts.length !== 2) throw new Error('Invalid range');
@@ -769,42 +819,70 @@
       }
 
       const helpers = {
-        cell, range,
-        row: (rowIdx ?? 0) + 1,
-        col: (colIdx ?? 0) + 1,
-        colLetter: colIndexToLetter(colIdx ?? 0),
+        cell,
+        range,
+        row: rowIdx + 1,
+        col: colIdx + 1,
+        colLetter: colIndexToLetter(colIdx),
         table: tableName || currentTable,
-        SUM: (...args) => {
-          const flat = args.flat(Infinity).map(parseNumber).filter(n => n !== null);
-          return flat.reduce((a, b) => a + b, 0);
+        SUM: function (arr) {
+          const a = Array.isArray(arr) ? arr : [arr];
+          let s = 0;
+          for (const v of a) {
+            const n = typeof v === 'number' ? v : parseFloat(v);
+            if (isFinite(n)) s += n;
+          }
+          return s;
         },
-        AVERAGE: (...args) => {
-          const flat = args.flat(Infinity).map(parseNumber).filter(n => n !== null);
-          return flat.length ? flat.reduce((a, b) => a + b, 0) / flat.length : null;
+        AVERAGE: function (arr) {
+          const a = Array.isArray(arr) ? arr : [arr];
+          let s = 0, c = 0;
+          for (const v of a) {
+            const n = typeof v === 'number' ? v : parseFloat(v);
+            if (isFinite(n)) { s += n; c++; }
+          }
+          return c ? s / c : 0;
         },
-        MIN: (...args) => {
-          const flat = args.flat(Infinity).map(parseNumber).filter(n => n !== null);
-          return flat.length ? Math.min(...flat) : null;
+        MIN: function (arr) {
+          const a = (Array.isArray(arr) ? arr : [arr]).map(v => typeof v === 'number' ? v : parseFloat(v)).filter(isFinite);
+          return a.length ? Math.min.apply(null, a) : 0;
         },
-        MAX: (...args) => {
-          const flat = args.flat(Infinity).map(parseNumber).filter(n => n !== null);
-          return flat.length ? Math.max(...flat) : null;
+        MAX: function (arr) {
+          const a = (Array.isArray(arr) ? arr : [arr]).map(v => typeof v === 'number' ? v : parseFloat(v)).filter(isFinite);
+          return a.length ? Math.max.apply(null, a) : 0;
         },
-        COUNT: (...args) => args.flat(Infinity).map(parseNumber).filter(n => n !== null).length,
-        COUNTA: (...args) => args.flat(Infinity).filter(v => v !== null && v !== '').length,
-        ROUND: (n, d = 0) => {
-          const x = parseNumber(n);
-          if (x === null) return null;
-          const f = Math.pow(10, d);
-          return Math.round(x * f) / f;
+        COUNT: function (arr) {
+          const a = Array.isArray(arr) ? arr : [arr];
+          return a.filter(v => typeof v === 'number' || (v != null && v !== '' && isFinite(parseFloat(v)))).length;
         },
-        ABS: (n) => { const x = parseNumber(n); return x === null ? null : Math.abs(x); },
-        IF: (cond, a, b) => cond ? a : b,
-        CONCAT: (...args) => args.flat(Infinity).map(v => v == null ? '' : String(v)).join(''),
-        Math, Number, String, Array, JSON, parseFloat, parseInt, isFinite, isNaN
+        COUNTA: function (arr) {
+          const a = Array.isArray(arr) ? arr : [arr];
+          return a.filter(v => v != null && v !== '').length;
+        },
+        ROUND: function (n, d) {
+          const p = Math.pow(10, d == null ? 0 : d);
+          return Math.round(Number(n) * p) / p;
+        },
+        ABS: function (n) { return Math.abs(Number(n)); },
+        IF: function (cond, t, f) { return cond ? t : f; },
+        CONCAT: function () {
+          const args = Array.prototype.slice.call(arguments);
+          return args.map(String).join('');
+        }
       };
 
-      // Build function body: allow expression or statements with return
+      const safeMath = Object.freeze({
+        abs: Math.abs, ceil: Math.ceil, floor: Math.floor, round: Math.round,
+        max: Math.max, min: Math.min, pow: Math.pow, sqrt: Math.sqrt,
+        log: Math.log, exp: Math.exp, sin: Math.sin, cos: Math.cos, tan: Math.tan,
+        PI: Math.PI, E: Math.E, random: Math.random, trunc: Math.trunc,
+        sign: Math.sign, hypot: Math.hypot
+      });
+      const safeJSON = Object.freeze({
+        parse: function (s) { return JSON.parse(s); },
+        stringify: function (v) { return JSON.stringify(v); }
+      });
+
       let code = body;
       const looksLikeStatements = /(?:^|\n)\s*(return|let |const |var |if\s*\(|for\s*\(|while\s*\()/.test(body)
         || body.includes(';');
@@ -825,7 +903,7 @@
           helpers.cell, helpers.range, helpers.row, helpers.col, helpers.colLetter, helpers.table,
           helpers.SUM, helpers.AVERAGE, helpers.MIN, helpers.MAX, helpers.COUNT, helpers.COUNTA,
           helpers.ROUND, helpers.ABS, helpers.IF, helpers.CONCAT,
-          Math, Number, String, Array, JSON
+          safeMath, Number, String, Array, safeJSON
         );
         if (typeof result === 'number' && !isFinite(result)) return '#NUM!';
         return result === undefined ? null : result;
@@ -1542,6 +1620,166 @@
       return String(val);
     }
 
+    // ── Cell formatting meta table (_sqlsheets_fmt) ────────────────────────
+    // Survives Export/Import SQLite. Hidden from Tables list (name prefix _sqlsheets_).
+    // Colors are CSS hex strings; empty means theme default.
+    function ensureFmtTable() {
+      if (!db) return;
+      try {
+        db.run(`CREATE TABLE IF NOT EXISTS ${quoteIdent(FMT_TABLE)} (
+          table_name TEXT NOT NULL,
+          rowid INTEGER NOT NULL,
+          col_name TEXT NOT NULL,
+          text_color TEXT,
+          bg_color TEXT,
+          PRIMARY KEY (table_name, rowid, col_name)
+        )`);
+      } catch (_) {}
+    }
+
+    function loadFmtCache(tableName) {
+      fmtCache = new Map();
+      if (!db || !tableName) return;
+      ensureFmtTable();
+      try {
+        const stmt = db.prepare(
+          `SELECT rowid, col_name, text_color, bg_color FROM ${quoteIdent(FMT_TABLE)} WHERE table_name = ?`
+        );
+        stmt.bind([tableName]);
+        while (stmt.step()) {
+          const r = stmt.getAsObject();
+          fmtCache.set(String(r.rowid) + '|' + r.col_name, {
+            text_color: r.text_color || '',
+            bg_color: r.bg_color || ''
+          });
+        }
+        stmt.free();
+      } catch (_) {}
+    }
+
+    function getCellFmt(rowid, colName) {
+      return fmtCache.get(String(rowid) + '|' + colName) || { text_color: '', bg_color: '' };
+    }
+
+    function setCellFmt(tableName, rowid, colName, textColor, bgColor) {
+      if (!db || !tableName) return;
+      ensureFmtTable();
+      const tc = (textColor || '').trim();
+      const bc = (bgColor || '').trim();
+      const key = String(rowid) + '|' + colName;
+      if (!tc && !bc) {
+        try {
+          db.run(
+            `DELETE FROM ${quoteIdent(FMT_TABLE)} WHERE table_name = ? AND rowid = ? AND col_name = ?`,
+            [tableName, rowid, colName]
+          );
+        } catch (_) {}
+        fmtCache.delete(key);
+        return;
+      }
+      try {
+        db.run(
+          `INSERT INTO ${quoteIdent(FMT_TABLE)} (table_name, rowid, col_name, text_color, bg_color)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(table_name, rowid, col_name) DO UPDATE SET
+             text_color = excluded.text_color,
+             bg_color = excluded.bg_color`,
+          [tableName, rowid, colName, tc || null, bc || null]
+        );
+        fmtCache.set(key, { text_color: tc, bg_color: bc });
+      } catch (e) {
+        toast('Format save failed: ' + e.message, 'error');
+      }
+    }
+
+    function applyFmtToSelection() {
+      if (selectedRow == null || !selectedCol || !currentTable) {
+        toast('Select a cell first', 'error');
+        return;
+      }
+      const tc = document.getElementById('fmtTextColor').value;
+      const bc = document.getElementById('fmtBgColor').value;
+      setCellFmt(currentTable, selectedRow, selectedCol, tc, bc);
+      renderGrid();
+      setStatus('Formatting applied');
+    }
+
+    function clearFmtOnSelection() {
+      if (selectedRow == null || !selectedCol || !currentTable) {
+        toast('Select a cell first', 'error');
+        return;
+      }
+      setCellFmt(currentTable, selectedRow, selectedCol, '', '');
+      document.getElementById('fmtTextColor').value = '#e7ecf3';
+      document.getElementById('fmtBgColor').value = '#1a2332';
+      renderGrid();
+      setStatus('Formatting cleared');
+    }
+
+    function updateScriptsBadge() {
+      const el = document.getElementById('scriptsBadge');
+      if (!el) return;
+      if (scriptsEnabled) {
+        el.textContent = 'Scripts: on';
+        el.className = 'scripts-badge on';
+        el.title = 'script= cells execute for this session. Click to disable.';
+      } else {
+        el.textContent = 'Scripts: off';
+        el.className = 'scripts-badge off';
+        el.title = 'script= cells are not executed (safe). Click to enable for this session.';
+      }
+    }
+
+    function setScriptsEnabled(on) {
+      scriptsEnabled = !!on;
+      updateScriptsBadge();
+      evalCache.clear();
+      if (currentTable) {
+        loadGridData();
+        renderGrid();
+      }
+    }
+
+    function dbContainsScripts() {
+      if (!db) return false;
+      try {
+        const tables = getTables();
+        for (const t of tables) {
+          let cols = [];
+          try {
+            const info = db.exec(`PRAGMA table_info(${quoteIdent(t)})`);
+            if (info.length) cols = info[0].values.map(r => r[1]);
+          } catch (_) { continue; }
+          for (const c of cols) {
+            try {
+              const r2 = db.exec(
+                `SELECT 1 FROM ${quoteIdent(t)} WHERE lower(CAST(${quoteIdent(c)} AS TEXT)) LIKE 'script=%' LIMIT 1`
+              );
+              if (r2 && r2.length && r2[0].values.length) return true;
+            } catch (_) {}
+          }
+        }
+      } catch (_) {}
+      return false;
+    }
+
+    /** After import: if script= cells exist, ask user; default remains scripts off. */
+    function afterImportScriptsCheck(label) {
+      if (!dbContainsScripts()) {
+        setScriptsEnabled(false);
+        return;
+      }
+      showModal({
+        title: 'JavaScript cells detected',
+        message: 'This file contains JavaScript cells (script=). Running them can execute code in your browser.\n\nRecommended: keep scripts disabled unless you trust the source.\n\nFile: ' + label,
+        fields: [],
+        okLabel: 'Disable scripts (safe)',
+        altLabel: 'Enable scripts for this session',
+        onOk: function () { setScriptsEnabled(false); },
+        onAlt: function () { setScriptsEnabled(true); }
+      });
+    }
+
     // ── DB init ────────────────────────────────────────────────────────────
     async function init() {
       try {
@@ -1550,7 +1788,10 @@
         });
         db = new SQL.Database();
         try { db.run("PRAGMA foreign_keys = ON"); } catch (_) {}
-        setStatus('Ready · in-memory SQLite');
+        ensureFmtTable();
+        scriptsEnabled = false;
+        updateScriptsBadge();
+        setStatus('Ready · in-memory SQLite · scripts off');
         refreshTableList();
       } catch (e) {
         setStatus('Failed to load SQLite');
@@ -1561,7 +1802,7 @@
 
     // ── Tables ─────────────────────────────────────────────────────────────
     function getTables() {
-      const res = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name");
+      const res = db.exec("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_sqlsheets_%' ORDER BY name");
       if (!res.length) return [];
       return res[0].values.map(r => r[0]);
     }
@@ -1592,6 +1833,7 @@
       selectedRow = null;
       selectedCol = null;
       selectedColIdx = null;
+      loadFmtCache(name);
       selectedRowIdx = null;
       document.getElementById('btnDelRow').disabled = true;
       document.getElementById('btnDelCol').disabled = true;
@@ -1687,8 +1929,15 @@
               display = raw === null || raw === undefined ? '' : String(raw);
             }
             const cls = [isF ? 'is-formula' : '', isS ? 'is-script' : '', isQ ? 'is-sql' : '', isErr ? 'is-error' : ''].filter(Boolean).join(' ');
-            html += `<td data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}">
-              <input class="cell ${cls}" value="${escapeHtml(display)}"
+            const fmt = getCellFmt(row.rowid, colNames[ci]);
+            const styleParts = [];
+            if (fmt.text_color) styleParts.push('color:' + fmt.text_color);
+            if (fmt.bg_color) styleParts.push('background-color:' + fmt.bg_color);
+            const styleAttr = styleParts.length ? ` style="${escapeHtml(styleParts.join(';'))}"` : '';
+            const tdStyle = fmt.bg_color ? ` style="background-color:${escapeHtml(fmt.bg_color)}"` : '';
+            const extraCls = (fmt.text_color ? ' has-text-color' : '') + (fmt.bg_color ? ' has-bg' : '');
+            html += `<td data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${tdStyle}>
+              <input class="cell ${cls}${extraCls}" value="${escapeHtml(display)}"${styleAttr}
                      data-raw="${escapeHtml(raw ?? '')}"
                      data-rowid="${row.rowid}" data-col="${escapeHtml(colNames[ci])}"
                      data-colidx="${ci}" data-rowidx="${ri}" data-ref="${ref}"
@@ -1710,6 +1959,9 @@
           selectedRowIdx = parseInt(inp.dataset.rowidx, 10);
           document.getElementById('btnDelRow').disabled = false;
           document.getElementById('btnDelCol').disabled = false;
+          const _fmt = getCellFmt(selectedRow, selectedCol);
+          document.getElementById('fmtTextColor').value = _fmt.text_color || '#e7ecf3';
+          document.getElementById('fmtBgColor').value = _fmt.bg_color || '#1a2332';
           wrap.querySelectorAll('td.selected').forEach(td => td.classList.remove('selected'));
           inp.closest('td')?.classList.add('selected');
 
@@ -2099,12 +2351,18 @@
           selectedCol = null;
           evalCache.clear();
           gridData = null;
+          fmtCache = new Map();
+          // Default-deny scripts until user confirms (checked below)
+          scriptsEnabled = false;
+          updateScriptsBadge();
+          ensureFmtTable();
           refreshTableList();
           renderGrid();
           const tables = getTables();
           if (tables.length) selectTable(tables[0]);
           setStatus(`Imported ${file.name} · ${tables.length} table(s)`);
           toast(`Imported SQLite: ${file.name}`, 'success');
+          afterImportScriptsCheck(file.name || 'database');
         } catch (e) {
           toast('Invalid or corrupted SQLite file: ' + e.message, 'error');
         }
@@ -2194,6 +2452,7 @@
           refreshTableList();
           selectTable(finalName);
           toast(`Imported ${lines.length - 1} rows into "${finalName}"`, 'success');
+          afterImportScriptsCheck(finalName);
         } catch (e) {
           toast('CSV import failed: ' + e.message, 'error');
         }
@@ -2235,41 +2494,65 @@
     }
 
     // ── Modal ──────────────────────────────────────────────────────────────
-    function showModal({ title, fields, onOk }) {
+    function showModal({ title, fields, onOk, onAlt, onCancel, message, okLabel, altLabel, cancelLabel }) {
+      fields = fields || [];
       const overlay = document.createElement('div');
       overlay.className = 'modal-overlay';
-      let fieldsHtml = fields.map(f => {
+      const msgHtml = message
+        ? `<p style="font-size:13px;line-height:1.5;color:var(--text-muted);margin-bottom:12px;white-space:pre-wrap">${escapeHtml(message)}</p>`
+        : '';
+      const altBtn = (onAlt && altLabel)
+        ? `<button type="button" class="btn" id="modalAlt">${escapeHtml(altLabel)}</button>`
+        : '';
+      const fieldsHtml = fields.map(f => {
         if (f.type === 'select') {
-          const opts = f.options.map(o => `<option value="${o}" ${o === f.value ? 'selected' : ''}>${o}</option>`).join('');
-          return `<label>${f.label}</label><select name="${f.name}">${opts}</select>`;
+          return `<label>${escapeHtml(f.label)}</label>
+            <select name="${escapeHtml(f.name)}">
+              ${f.options.map(o => `<option value="${escapeHtml(o)}" ${o === f.value ? 'selected' : ''}>${escapeHtml(o)}</option>`).join('')}
+            </select>`;
         }
-        return `<label>${f.label}</label><input name="${f.name}" type="${f.type || 'text'}" value="${f.value || ''}" ${f.required ? 'required' : ''}>`;
+        return `<label>${escapeHtml(f.label)}</label>
+          <input name="${escapeHtml(f.name)}" type="${f.type || 'text'}" value="${escapeHtml(f.value || '')}" ${f.required ? 'required' : ''}>`;
       }).join('');
-
-      overlay.innerHTML = `
-        <div class="modal">
-          <h3>${escapeHtml(title)}</h3>
-          <form id="modalForm">${fieldsHtml}
-            <div class="modal-actions">
-              <button type="button" class="btn" id="modalCancel">Cancel</button>
-              <button type="submit" class="btn primary">OK</button>
-            </div>
-          </form>
-        </div>`;
+      overlay.innerHTML =
+        '<div class="modal">' +
+          '<h3>' + escapeHtml(title) + '</h3>' +
+          msgHtml +
+          '<form id="modalForm">' +
+            fieldsHtml +
+            '<div class="modal-actions">' +
+              '<button type="button" class="btn" id="modalCancel">' + escapeHtml(cancelLabel || 'Cancel') + '</button>' +
+              altBtn +
+              '<button type="submit" class="btn primary">' + escapeHtml(okLabel || 'OK') + '</button>' +
+            '</div>' +
+          '</form>' +
+        '</div>';
       document.body.appendChild(overlay);
 
       const form = overlay.querySelector('#modalForm');
       form.querySelector('input, select')?.focus();
-      overlay.querySelector('#modalCancel').onclick = () => overlay.remove();
-      overlay.addEventListener('click', e => { if (e.target === overlay) overlay.remove(); });
+      const close = () => overlay.remove();
+      overlay.querySelector('#modalCancel').onclick = () => {
+        close();
+        if (onCancel) onCancel();
+      };
+      const altEl = overlay.querySelector('#modalAlt');
+      if (altEl) {
+        altEl.onclick = () => {
+          close();
+          if (onAlt) onAlt();
+        };
+      }
+      overlay.addEventListener('click', e => { if (e.target === overlay) { close(); if (onCancel) onCancel(); } });
       form.onsubmit = e => {
         e.preventDefault();
         const vals = {};
         fields.forEach(f => {
-          vals[f.name] = form.querySelector(`[name="${f.name}"]`).value;
+          const el = form.querySelector(`[name="${f.name}"]`);
+          if (el) vals[f.name] = el.value;
         });
-        overlay.remove();
-        onOk(vals);
+        close();
+        if (onOk) onOk(vals);
       };
     }
 
@@ -2577,6 +2860,18 @@
     };
     document.getElementById('btnFormulaHelp').onclick = showFormulaHelp;
     document.getElementById('helpHint').onclick = showFormulaHelp;
+    document.getElementById('btnFmtApply').onclick = applyFmtToSelection;
+    document.getElementById('btnFmtClear').onclick = clearFmtOnSelection;
+    document.getElementById('scriptsBadge').onclick = () => {
+      if (scriptsEnabled) {
+        setScriptsEnabled(false);
+        toast('Scripts disabled for this session', 'success');
+      } else {
+        if (!confirm('Enable script= JavaScript cells for this session?\n\nOnly enable if you trust the current database.')) return;
+        setScriptsEnabled(true);
+        toast('Scripts enabled for this session', 'success');
+      }
+    };
 
     document.getElementById('btnRunSql').onclick = runSql;
     document.getElementById('btnClearSql').onclick = () => {
