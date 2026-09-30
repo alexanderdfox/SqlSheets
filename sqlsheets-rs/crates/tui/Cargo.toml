@@ -1,0 +1,18 @@
+[package]
+name = "sqlsheets-tui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Terminal UI for SqlSheets-rs"
+
+[[bin]]
+name = "sqlsheets"
+path = "src/main.rs"
+
+[dependencies]
+sqlsheets-core = { path = "../core" }
+rusqlite = { workspace = true }
+anyhow = { workspace = true }
+crossterm = "0.27"
+ratatui = "0.26"
+clap = { version = "4.4", features = ["derive"] }

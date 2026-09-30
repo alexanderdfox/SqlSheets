@@ -1,0 +1,19 @@
+[package]
+name = "sqlsheets-gui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "GUI for SqlSheets-rs (egui)"
+
+[[bin]]
+name = "sqlsheets-gui"
+path = "src/main.rs"
+
+[dependencies]
+sqlsheets-core = { path = "../core" }
+rusqlite = { workspace = true }
+anyhow = { workspace = true }
+eframe = { version = "0.27", default-features = true, features = ["glow"] }
+egui = "0.27"
+rfd = "0.14"
+clap = { version = "4.4", features = ["derive"] }
