@@ -814,8 +814,9 @@
         Nested formulas, basic arithmetic + - * / ^ , postfix % (10% → 0.1)
         String concat with & , booleans TRUE/FALSE
         Functions: SUM, AVERAGE/AVG, COUNT, COUNTA, MIN, MAX, IF, ROUND, ABS,
-                   POWER, SQRT, MOD, CONCAT, LEFT, RIGHT, LEN, UPPER, LOWER, VALUE,
-                   AND, OR, NOT, XOR, XNOR
+                   POWER, SQRT, MOD, FLOOR, CEILING, PI, CONCAT, LEFT, RIGHT, LEN,
+                   UPPER, LOWER, VALUE, AND, OR, NOT, XOR, XNOR
+        Constants: PI (also as PI()), TRUE, FALSE
     */
     const FormulaError = class extends Error {
       constructor(code, msg) { super(msg || code); this.code = code; }
@@ -1463,6 +1464,15 @@
           return t.value === 'TRUE';
         }
 
+        // Math constants (bare PI, E) — Excel allows PI as a name; we accept PI and PI()
+        if (t.type === 'ident' && (t.value === 'PI' || t.value === 'E')) {
+          // If followed by '(' treat as function call below; otherwise constant
+          if (!(tokens[pos + 1] && tokens[pos + 1].type === 'lparen')) {
+            consume();
+            return t.value === 'PI' ? Math.PI : Math.E;
+          }
+        }
+
         // Table!A1 or Table!A1:B2
         if (t.type === 'ident' && tokens[pos + 1] && tokens[pos + 1].type === 'bang') {
           const table = parseTablePrefix();
@@ -1627,10 +1637,37 @@
             return Math.pow(a, b);
           }
           case 'MOD': {
+            // Excel-compatible MOD: result has the same sign as the divisor
             const a = parseNumber(args[0]), b = parseNumber(args[1]);
             if (a === null || b === null) throw new FormulaError('#VALUE?');
             if (b === 0) throw new FormulaError('#DIV/0!');
-            return a % b;
+            return a - b * Math.floor(a / b);
+          }
+          case 'PI': {
+            // PI() with optional ignored args
+            return Math.PI;
+          }
+          case 'FLOOR': {
+            // FLOOR(number, [significance]) — Excel style
+            // significance defaults to 1. Result is multiple of significance toward -∞.
+            const n = parseNumber(args[0]);
+            if (n === null) throw new FormulaError('#VALUE?');
+            let sig = args.length > 1 ? parseNumber(args[1]) : 1;
+            if (sig === null) throw new FormulaError('#VALUE?');
+            if (sig === 0) throw new FormulaError('#DIV/0!');
+            // Excel: if number and significance have different signs → #NUM!
+            if (n > 0 && sig < 0) throw new FormulaError('#NUM!');
+            return Math.floor(n / sig) * sig;
+          }
+          case 'CEILING': {
+            // CEILING(number, [significance]) — toward +∞
+            const n = parseNumber(args[0]);
+            if (n === null) throw new FormulaError('#VALUE?');
+            let sig = args.length > 1 ? parseNumber(args[1]) : 1;
+            if (sig === null) throw new FormulaError('#VALUE?');
+            if (sig === 0) throw new FormulaError('#DIV/0!');
+            if (n > 0 && sig < 0) throw new FormulaError('#NUM!');
+            return Math.ceil(n / sig) * sig;
           }
           case 'CONCAT': case 'CONCATENATE':
             return flatten(args).map(v => v == null ? '' : String(v)).join('');
@@ -3024,7 +3061,7 @@
                 <tr><td><code>^</code></td><td><code>=2^8</code></td><td>Power</td></tr>
                 <tr><td>postfix <code>%</code></td><td><code>=10%</code> → 0.1</td><td>Percent (divide by 100)</td></tr>
                 <tr><td>binary <code>%</code></td><td><code>=A1%B1</code></td><td>Modulo (remainder)</td></tr>
-                <tr><td><code>MOD(a,b)</code></td><td><code>=MOD(A1,B1)</code></td><td>Same as binary %</td></tr>
+                <tr><td><code>MOD(a,b)</code></td><td><code>=MOD(A1,B1)</code></td><td>Excel-style remainder (sign follows divisor)</td></tr>
                 <tr><td>unary <code>-</code></td><td><code>=-A1</code></td><td>Negation</td></tr>
               </table>
               <h4>Comparison</h4>
@@ -3062,11 +3099,14 @@
               <h4>Math</h4>
               <table>
                 <tr><th>Function</th><th>Example</th></tr>
+                <tr><td><code>PI()</code> or <code>PI</code></td><td><code>=PI()</code> → 3.14159… · <code>=2*PI*r</code></td></tr>
                 <tr><td><code>ROUND(n, digits)</code></td><td><code>=ROUND(A1/B1,2)</code></td></tr>
+                <tr><td><code>FLOOR(n [, significance])</code></td><td><code>=FLOOR(3.7)</code> → 3 · <code>=FLOOR(A1,0.05)</code></td></tr>
+                <tr><td><code>CEILING(n [, significance])</code></td><td><code>=CEILING(3.2)</code> → 4</td></tr>
                 <tr><td><code>ABS(n)</code></td><td><code>=ABS(A1-B1)</code></td></tr>
                 <tr><td><code>SQRT(n)</code></td><td><code>=SQRT(A1)</code></td></tr>
                 <tr><td><code>POWER(a,b)</code> / <code>POW</code></td><td><code>=POWER(2,10)</code></td></tr>
-                <tr><td><code>MOD(a,b)</code></td><td><code>=MOD(10,3)</code> → 1</td></tr>
+                <tr><td><code>MOD(a,b)</code></td><td><code>=MOD(10,3)</code> → 1 · Excel sign rules</td></tr>
               </table>
               <h4>Text</h4>
               <table>
