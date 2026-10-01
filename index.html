@@ -815,7 +815,7 @@
         String concat with & , booleans TRUE/FALSE
         Functions: SUM, AVERAGE/AVG, COUNT, COUNTA, MIN, MAX, IF, ROUND, ABS,
                    POWER, SQRT, MOD, CONCAT, LEFT, RIGHT, LEN, UPPER, LOWER, VALUE,
-                   AND, OR, NOT
+                   AND, OR, NOT, XOR, XNOR
     */
     const FormulaError = class extends Error {
       constructor(code, msg) { super(msg || code); this.code = code; }
@@ -1008,6 +1008,44 @@
         },
         ABS: function (n) { return Math.abs(Number(n)); },
         IF: function (cond, t, f) { return cond ? t : f; },
+        XOR: function () {
+          let c = 0;
+          for (let i = 0; i < arguments.length; i++) {
+            const a = arguments[i];
+            const n = Number(a);
+            if (a === true || (isFinite(n) && n !== 0) || (typeof a === 'string' && a !== '')) c++;
+          }
+          return (c % 2) === 1 ? 1 : 0;
+        },
+        XNOR: function () {
+          let c = 0;
+          for (let i = 0; i < arguments.length; i++) {
+            const a = arguments[i];
+            const n = Number(a);
+            if (a === true || (isFinite(n) && n !== 0) || (typeof a === 'string' && a !== '')) c++;
+          }
+          return (c % 2) === 0 ? 1 : 0;
+        },
+        AND: function () {
+          for (let i = 0; i < arguments.length; i++) {
+            const a = arguments[i];
+            const n = Number(a);
+            if (!(a === true || (isFinite(n) && n !== 0) || (typeof a === 'string' && a !== ''))) return 0;
+          }
+          return 1;
+        },
+        OR: function () {
+          for (let i = 0; i < arguments.length; i++) {
+            const a = arguments[i];
+            const n = Number(a);
+            if (a === true || (isFinite(n) && n !== 0) || (typeof a === 'string' && a !== '')) return 1;
+          }
+          return 0;
+        },
+        NOT: function (a) {
+          const n = Number(a);
+          return (a === true || (isFinite(n) && n !== 0) || (typeof a === 'string' && a !== '')) ? 0 : 1;
+        },
         CONCAT: function () {
           const args = Array.prototype.slice.call(arguments);
           return args.map(String).join('');
@@ -1027,11 +1065,19 @@
       });
 
       let code = body;
-      const looksLikeStatements = /(?:^|\n)\s*(return|let |const |var |if\s*\(|for\s*\(|while\s*\()/.test(body)
-        || body.includes(';');
+      // Detect top-level statements vs a single expression (including IIFEs).
+      // An IIFE like (()=>{ ... return x; })() contains "return" but is still
+      // an expression — we must wrap it so the outer function returns its value.
+      // Strip full-line and trailing // comments so they cannot swallow a closing );
+      const stripLineComments = (s) => s.replace(/(^|\n)\s*\/\/.*(?=\n|$)/g, '$1').replace(/\/\/[^\n]*$/g, '');
+      const trimmed = body.trim();
+      const exprBody = stripLineComments(trimmed).trim();
+      const isIife = /^\(?\s*function\b/.test(trimmed) || /^\(\s*\(\)\s*=>/.test(trimmed) || /^\(\s*async\s*\(\)\s*=>/.test(trimmed);
+      const startsWithDecl = /^(return|let |const |var |if\s*\(|for\s*\(|while\s*\(|switch\s*\()/.test(trimmed);
+      const looksLikeStatements = startsWithDecl || (body.includes(';') && !isIife);
       if (!looksLikeStatements) {
-        code = 'return (' + body + ');';
-      } else if (!/\breturn\b/.test(body)) {
+        code = 'return (' + (exprBody || 'null') + ');';
+      } else if (!/(?:^|\n)\s*return\b/.test(body)) {
         code = body + '\n;return undefined;';
       }
 
@@ -1040,6 +1086,7 @@
           'cell', 'range', 'row', 'col', 'colLetter', 'table',
           'fg', 'bg', 'style', 'color',
           'SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'ROUND', 'ABS', 'IF', 'CONCAT',
+          'XOR', 'XNOR', 'AND', 'OR', 'NOT',
           'Math', 'Number', 'String', 'Array', 'JSON',
           '"use strict";\n' + code
         );
@@ -1048,6 +1095,7 @@
           helpers.fg, helpers.bg, helpers.style, helpers.color,
           helpers.SUM, helpers.AVERAGE, helpers.MIN, helpers.MAX, helpers.COUNT, helpers.COUNTA,
           helpers.ROUND, helpers.ABS, helpers.IF, helpers.CONCAT,
+          helpers.XOR, helpers.XNOR, helpers.AND, helpers.OR, helpers.NOT,
           safeMath, Number, String, Array, safeJSON
         );
         if (typeof result === 'number' && !isFinite(result)) return '#NUM!';
@@ -1617,6 +1665,27 @@
             const a = args[0];
             const n = parseNumber(a);
             return !(a === true || (n !== null && n !== 0) || (typeof a === 'string' && a !== ''));
+          }
+          case 'XOR': {
+            // Excel-style XOR: true when odd number of arguments are truthy
+            // Also works as binary exclusive-or for 0/1 circuit logic
+            const truthy = (a) => {
+              const n = parseNumber(a);
+              return a === true || (n !== null && n !== 0) || (typeof a === 'string' && a !== '');
+            };
+            let count = 0;
+            for (const a of args) if (truthy(a)) count++;
+            return (count % 2) === 1;
+          }
+          case 'XNOR': {
+            // Inverse of XOR – true when even number of truthy args (including zero)
+            const truthy = (a) => {
+              const n = parseNumber(a);
+              return a === true || (n !== null && n !== 0) || (typeof a === 'string' && a !== '');
+            };
+            let count = 0;
+            for (const a of args) if (truthy(a)) count++;
+            return (count % 2) === 0;
           }
           default:
             throw new FormulaError('#NAME?', 'Unknown function: ' + name);
@@ -2987,6 +3056,8 @@
                 <tr><td><code>AND(...)</code></td><td><code>=AND(A1&gt;0,B1&gt;0)</code></td></tr>
                 <tr><td><code>OR(...)</code></td><td><code>=OR(A1=1,A1=2)</code></td></tr>
                 <tr><td><code>NOT(x)</code></td><td><code>=NOT(A1=0)</code></td></tr>
+                <tr><td><code>XOR(...)</code></td><td><code>=XOR(A1,B1)</code> · odd number of TRUE</td></tr>
+                <tr><td><code>XNOR(...)</code></td><td><code>=XNOR(A1,B1)</code> · even number of TRUE</td></tr>
               </table>
               <h4>Math</h4>
               <table>
