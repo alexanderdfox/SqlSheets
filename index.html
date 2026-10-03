@@ -1106,6 +1106,131 @@
       }
     }
 
+
+    // ── Materialize script=/formula cells for SQL SELECT ────────────────────
+    // SQLite only sees raw stored text. When a SELECT touches tables that contain
+    // script= / = / sql= cells, build TEMP tables filled with *evaluated* values
+    // so aggregates like SUM(delta_v) work without requiring Bake first.
+    // Temp tables are named _sqlsheets_eval_<original> and are dropped after use.
+    const EVAL_TEMP_PREFIX = '_sqlsheets_eval_';
+    let materializingDepth = 0; // re-entrancy guard (sql= cells during materialize)
+
+    function tableHasComputedCells(tableName) {
+      try {
+        const data = loadTableGrid(tableName);
+        for (const row of data.rows) {
+          for (const v of row.values) {
+            if (isComputed(v)) return true;
+          }
+        }
+      } catch (_) {}
+      return false;
+    }
+
+    function extractTableNamesFromSql(sql) {
+      // Conservative extractor: identifiers after FROM / JOIN (skip aliases keywords)
+      const names = new Set();
+      const re = /\b(?:FROM|JOIN)\s+["'`]?([A-Za-z_][A-Za-z0-9_]*)["'`]?/gi;
+      let m;
+      while ((m = re.exec(sql)) !== null) {
+        const n = m[1];
+        if (!/^(SELECT|WHERE|ON|AS|LEFT|RIGHT|INNER|OUTER|CROSS|FULL|NATURAL|GROUP|ORDER|LIMIT|UNION|EXCEPT|INTERSECT)$/i.test(n)) {
+          names.add(n);
+        }
+      }
+      return [...names];
+    }
+
+    function materializeTableForSql(tableName) {
+      const data = loadTableGrid(tableName);
+      const { colNames, rows } = data;
+      if (!colNames.length) return null;
+
+      const tempName = EVAL_TEMP_PREFIX + tableName;
+      // Drop if leftover from a previous failed run
+      try { db.run(`DROP TABLE IF EXISTS ${quoteIdent(tempName)}`); } catch (_) {}
+
+      // All columns as TEXT affinity is fine; numbers still SUM correctly in SQLite
+      const colDefs = colNames.map(c => quoteIdent(c) + ' TEXT').join(', ');
+      db.run(`CREATE TEMP TABLE ${quoteIdent(tempName)} (${colDefs})`);
+
+      const placeholders = colNames.map(() => '?').join(',');
+      const insertSql = `INSERT INTO ${quoteIdent(tempName)} VALUES (${placeholders})`;
+      const stmt = db.prepare(insertSql);
+
+      const { getCellValue } = makeSheetAccessors();
+      for (let r = 0; r < rows.length; r++) {
+        const vals = [];
+        for (let c = 0; c < colNames.length; c++) {
+          const raw = rows[r].values[c];
+          let v = raw;
+          if (isComputed(raw)) {
+            try {
+              const ref = colIndexToLetter(c) + (r + 1);
+              v = getCellValue(ref, tableName);
+            } catch (_) {
+              v = null;
+            }
+          }
+          // Store numbers as numbers (sql.js accepts JS numbers), text as string, null as null
+          if (v === null || v === undefined || v === '') {
+            vals.push(null);
+          } else if (typeof v === 'number' && isFinite(v)) {
+            vals.push(v);
+          } else if (typeof v === 'boolean') {
+            vals.push(v ? 1 : 0);
+          } else {
+            const s = String(v);
+            // Don't persist error codes as numbers
+            if (s.startsWith('#')) vals.push(null);
+            else {
+              const n = parseNumber(s);
+              vals.push(n !== null ? n : s);
+            }
+          }
+        }
+        stmt.run(vals);
+      }
+      stmt.free();
+      return tempName;
+    }
+
+    function withEvaluatedTables(sql, runFn) {
+      // Avoid recursion when materializing triggers nested sql= evaluation
+      if (materializingDepth > 0) return runFn(sql);
+      // Only materialize for SELECT-like statements
+      const trimmed = String(sql).trim();
+      if (!/^\s*SELECT\b/i.test(trimmed) && !/^\s*WITH\b/i.test(trimmed)) {
+        return runFn(sql);
+      }
+
+      const tables = extractTableNamesFromSql(trimmed);
+      const existing = new Set(getTables());
+      const created = [];
+      let rewritten = trimmed;
+
+      materializingDepth++;
+      try {
+        for (const t of tables) {
+          if (!existing.has(t)) continue;
+          if (!tableHasComputedCells(t)) continue;
+          const temp = materializeTableForSql(t);
+          if (!temp) continue;
+          created.push(temp);
+          // Replace table references carefully (word boundary)
+          const re = new RegExp('\\b' + t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\b', 'gi');
+          rewritten = rewritten.replace(re, temp);
+        }
+        return runFn(rewritten);
+      } finally {
+        materializingDepth--;
+        for (const temp of created) {
+          try { db.run(`DROP TABLE IF EXISTS ${quoteIdent(temp)}`); } catch (_) {}
+        }
+      }
+    }
+
+
     // Evaluate sql= cell. Runs against the in-memory SQLite DB.
     // Returns first column of first row for SELECT; "OK" / rows message for others.
     // Placeholders: {{A1}} or {{Table!B2}} → cell value (quoted if text).
@@ -1138,7 +1263,7 @@
           return "'" + String(v).replace(/'/g, "''") + "'";
         });
 
-        const results = db.exec(sql);
+        const results = withEvaluatedTables(sql, (q) => db.exec(q));
         // DML / DDL with no result set
         if (!results.length) {
           let changes = 0;
@@ -2686,7 +2811,7 @@
       saveBtn.disabled = true;
 
       try {
-        const results = db.exec(sql);
+        const results = withEvaluatedTables(sql, (q) => db.exec(q));
         refreshTableList();
         if (currentTable && getTables().includes(currentTable)) {
           renderGrid();
@@ -3156,7 +3281,7 @@
 
             <div class="help-section" data-section="sql">
               <h4>SQL cells</h4>
-              <p>Start with <code style="color:#38bdf8">sql=</code>. The rest is executed on the current SQLite database (same engine as the SQL console).</p>
+              <p>Start with <code style="color:#38bdf8">sql=</code>. The rest is executed on the current SQLite database (same engine as the SQL console). <strong>SELECT</strong> automatically evaluates <code class="script">script=</code> / <code>=</code> cells in referenced tables (no Bake required for aggregates).</p>
               <table>
                 <tr><th>Result shape</th><th>Cell displays</th></tr>
                 <tr><td>SELECT, 1 row × 1 col</td><td>That scalar value</td></tr>
