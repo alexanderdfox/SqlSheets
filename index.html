@@ -6,10 +6,11 @@
   <!--
     Security model (offline-first local tool — no server, data stays in the browser):
     - script= cells are sandboxed and OFF by default after import until the user enables them.
+    - When Scripts are ON, script= may use fetchText/fetchJSON/webpage helpers (network).
     - sql.js is pinned with Subresource Integrity; CSP restricts unexpected remote code.
-    - Cell colors live in meta table _sqlsheets_fmt (excluded from the Tables list).
+    - Cell colors live in meta table _sqlsheets_fmt; col/row sizes in _sqlsheets_layout (excluded from Tables list).
   -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https://cdn.jsdelivr.net https://raw.githubusercontent.com blob:; img-src 'self' data: blob:; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https: http: blob:; img-src 'self' data: blob: https:; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
   <title>SQLSheet — SQLite + Spreadsheet + Formulas</title>
   <style>
     :root {
@@ -247,10 +248,41 @@
       border: 1px solid var(--border);
       padding: 0;
       height: 26px;
-      min-width: 72px;
-      max-width: 260px;
+      min-width: 40px;
       position: relative;
+      box-sizing: border-box;
     }
+    /* Column resize handle (right edge of header) */
+    table.grid th .col-resize-handle {
+      position: absolute;
+      top: 0; right: -3px;
+      width: 6px; height: 100%;
+      cursor: col-resize;
+      z-index: 5;
+      background: transparent;
+    }
+    table.grid th .col-resize-handle:hover,
+    table.grid th .col-resize-handle.active {
+      background: var(--accent);
+      opacity: 0.7;
+    }
+    /* Row resize handle (bottom edge of row-num cell) */
+    table.grid td.row-num .row-resize-handle {
+      position: absolute;
+      left: 0; bottom: -3px;
+      width: 100%; height: 6px;
+      cursor: row-resize;
+      z-index: 5;
+      background: transparent;
+    }
+    table.grid td.row-num .row-resize-handle:hover,
+    table.grid td.row-num .row-resize-handle.active {
+      background: var(--accent);
+      opacity: 0.7;
+    }
+    body.resizing-col { cursor: col-resize !important; user-select: none !important; }
+    body.resizing-row { cursor: row-resize !important; user-select: none !important; }
+    body.resizing-col *, body.resizing-row * { cursor: inherit !important; user-select: none !important; }
     table.grid td.cell-live {
       background: rgba(34, 197, 94, 0.22) !important;
     }
@@ -311,8 +343,9 @@
       align-items: center;
       justify-content: center;
       height: 100%;
-      padding: 0 4px;
+      padding: 0 8px 0 4px;
       line-height: 1.2;
+      overflow: hidden;
     }
     table.grid .col-letter {
       font-size: 10px;
@@ -719,6 +752,16 @@
     // Context for the cell currently being evaluated (so style helpers know where to apply)
     let evalStyleCtx = null; // { table, rowid, colName }
     const FMT_TABLE = '_sqlsheets_fmt';
+    const LAYOUT_TABLE = '_sqlsheets_layout'; // col widths + row heights (px)
+    // In-memory layout for current table: { cols: Map(colName→width), rows: Map(rowid→height) }
+    let layoutCache = { cols: new Map(), rows: new Map() };
+    const DEFAULT_COL_W = 96;
+    const DEFAULT_ROW_H = 26;
+    const MIN_COL_W = 40;
+    const MIN_ROW_H = 18;
+    const MAX_COL_W = 800;
+    const MAX_ROW_H = 400;
+
 
     function isStyledValue(v) {
       return v && typeof v === 'object' && !Array.isArray(v) && v.__sqlsheet_style === true;
@@ -864,19 +907,25 @@
     }
 
     // ── Security: sandboxed script= evaluation ─────────────────────────────
-    // Model: script= is gated by scriptsEnabled (default OFF after import of files
-    // that contain script=). Execution uses new Function with a locked-down parameter
-    // list only — window/document/fetch/etc. are never passed. Body length is capped.
-    // Source is scanned for common escape-hatch identifiers. This is defense-in-depth
-    // for a local offline tool, not multi-tenant isolation.
+    // Model: script= is gated by scriptsEnabled (default OFF). Execution uses
+    // new Function with a locked-down parameter list. Body length is capped.
+    // When Scripts are ON, controlled network helpers are available:
+    //   fetchText(url)  → Promise<string>   (response body as text)
+    //   fetchJSON(url)  → Promise<any>      (parsed JSON)
+    //   webpage(url)    → Promise<object>   ({url, status, title, text, html})
+    // Raw window/document/eval/etc. remain blocked.
+    // Async scripts: use await or return a Promise; the grid shows "⏳ Loading…"
+    // until the promise settles, then updates the cell.
+    const pendingAsyncCells = new Map(); // key → true while a promise is in flight
+
     function evaluateScript(src, rowIdx, colIdx, tableName) {
       if (!scriptsEnabled) return '#SCRIPT_DISABLED';
       const body = String(src).replace(/^\s*script\s*=/i, '').trim();
       if (!body) return null;
       if (body.length > SCRIPT_MAX_LEN) return '#JS! script too long (max ' + SCRIPT_MAX_LEN + ')';
 
-      // Block common escape hatches in source text (defense in depth)
-      if (/\b(window|document|globalThis|self|frames|parent|top|Function|eval|importScripts|fetch|XMLHttpRequest|WebSocket|localStorage|sessionStorage|indexedDB|openDatabase|process|require|Deno|Bun)\b/.test(body)) {
+      // Block common escape hatches (raw fetch still blocked; use fetchText/fetchJSON/webpage)
+      if (/\b(window|document|globalThis|self|frames|parent|top|Function|eval|importScripts|XMLHttpRequest|WebSocket|localStorage|sessionStorage|indexedDB|openDatabase|process|require|Deno|Bun)\b/.test(body)) {
         return '#JS! blocked identifier';
       }
 
@@ -893,8 +942,6 @@
       }
 
       function rangeAs2D(startRef, endRef, tbl) {
-        // getRangeValues is flat row-major; reshape to rows for script authors
-        // so range('A1','C3').flat() and nested row access both work.
         const m1 = /^([A-Z]+)([0-9]+)$/.exec(String(startRef).toUpperCase());
         const m2 = /^([A-Z]+)([0-9]+)$/.exec(String(endRef).toUpperCase());
         if (!m1 || !m2) throw new Error('Invalid range');
@@ -915,150 +962,172 @@
         return rows2d;
       }
 
-      function range(a, b) {
-        if (b != null) {
-          let t1 = tableName || currentTable, r1 = String(a), t2 = t1, r2 = String(b);
-          if (String(a).includes('!')) {
-            const p = String(a).split('!');
-            t1 = p[0]; r1 = p[1];
+      function range(a, b, tbl) {
+        if (b === undefined || b === null) {
+          // range('A1:B3') or range('Table!A1:B3')
+          const s = String(a).trim();
+          const bang = s.indexOf('!');
+          let table = tbl, spec = s;
+          if (bang > 0) {
+            table = s.slice(0, bang);
+            spec = s.slice(bang + 1);
           }
-          if (String(b).includes('!')) {
-            const p = String(b).split('!');
-            t2 = p[0]; r2 = p[1];
-          }
-          if (t1 !== t2) throw new Error('Range tables must match');
-          return rangeAs2D(r1, r2, t1);
+          const parts = spec.split(':');
+          if (parts.length === 2) return rangeAs2D(parts[0], parts[1], table);
+          return rangeAs2D(spec, spec, table);
         }
-        const s = String(a).trim();
-        let table = tableName || currentTable;
-        let spec = s;
-        if (s.includes('!')) {
-          const p = s.split('!');
-          table = p[0];
-          spec = p[1];
-        }
-        const parts = spec.split(':');
-        if (parts.length !== 2) throw new Error('Invalid range');
-        return rangeAs2D(parts[0], parts[1], table);
+        return rangeAs2D(a, b, tbl);
       }
 
-      function flattenVals(arr) {
-        const out = [];
-        const walk = (x) => {
-          if (Array.isArray(x)) x.forEach(walk);
-          else out.push(x);
-        };
-        walk(arr);
-        return out;
-      }
-
+      const colLetter = colIndexToLetter(colIdx);
       const helpers = {
         cell,
         range,
         row: rowIdx + 1,
         col: colIdx + 1,
-        colLetter: colIndexToLetter(colIdx),
-        table: tableName || currentTable,
-        // Dynamic cell colors (apply to the cell being evaluated)
-        fg: function (c) { setDynamicFmtForCtx(c, null); return c; },
-        bg: function (c) { setDynamicFmtForCtx(null, c); return c; },
-        style: function (fgc, bgc) {
-          setDynamicFmtForCtx(fgc != null ? fgc : null, bgc != null ? bgc : null);
-          return makeStyledValue(null, fgc, bgc);
-        },
-        color: function (value, fgc, bgc) {
-          return makeStyledValue(value, fgc, bgc);
+        colLetter,
+        table: tableName || currentTable || '',
+        fg: function (c) { return color(arguments.length > 1 ? arguments[0] : null, c, null); },
+        bg: function (c) { return color(arguments.length > 1 ? arguments[0] : null, null, c); },
+        style: function (v, fg, bg) { return color(v, fg, bg); },
+        color: function (v, fg, bg) {
+          if (arguments.length === 1) return makeStyledValue(null, v, null);
+          return makeStyledValue(v, fg, bg);
         },
         SUM: function (arr) {
-          const a = flattenVals(arr);
+          const a = Array.isArray(arr) ? arr.flat(Infinity) : [arr];
           let s = 0;
-          for (const v of a) {
-            const n = typeof v === 'number' ? v : parseFloat(v);
-            if (isFinite(n)) s += n;
-          }
+          for (const x of a) { const n = parseNumber(x); if (n !== null) s += n; }
           return s;
         },
         AVERAGE: function (arr) {
-          const a = flattenVals(arr);
+          const a = Array.isArray(arr) ? arr.flat(Infinity) : [arr];
           let s = 0, c = 0;
-          for (const v of a) {
-            const n = typeof v === 'number' ? v : parseFloat(v);
-            if (isFinite(n)) { s += n; c++; }
-          }
+          for (const x of a) { const n = parseNumber(x); if (n !== null) { s += n; c++; } }
           return c ? s / c : 0;
         },
         MIN: function (arr) {
-          const a = flattenVals(arr).map(v => typeof v === 'number' ? v : parseFloat(v)).filter(isFinite);
-          return a.length ? Math.min.apply(null, a) : 0;
+          const a = Array.isArray(arr) ? arr.flat(Infinity) : [arr];
+          let m = null;
+          for (const x of a) { const n = parseNumber(x); if (n !== null && (m === null || n < m)) m = n; }
+          return m;
         },
         MAX: function (arr) {
-          const a = flattenVals(arr).map(v => typeof v === 'number' ? v : parseFloat(v)).filter(isFinite);
-          return a.length ? Math.max.apply(null, a) : 0;
+          const a = Array.isArray(arr) ? arr.flat(Infinity) : [arr];
+          let m = null;
+          for (const x of a) { const n = parseNumber(x); if (n !== null && (m === null || n > m)) m = n; }
+          return m;
         },
         COUNT: function (arr) {
-          const a = flattenVals(arr);
-          return a.filter(v => typeof v === 'number' || (v != null && v !== '' && isFinite(parseFloat(v)))).length;
+          const a = Array.isArray(arr) ? arr.flat(Infinity) : [arr];
+          let c = 0;
+          for (const x of a) { if (parseNumber(x) !== null) c++; }
+          return c;
         },
         COUNTA: function (arr) {
-          const a = flattenVals(arr);
-          return a.filter(v => v != null && v !== '').length;
+          const a = Array.isArray(arr) ? arr.flat(Infinity) : [arr];
+          let c = 0;
+          for (const x of a) { if (x !== null && x !== undefined && x !== '') c++; }
+          return c;
         },
         ROUND: function (n, d) {
-          const p = Math.pow(10, d == null ? 0 : d);
-          return Math.round(Number(n) * p) / p;
+          d = d == null ? 0 : d;
+          const f = Math.pow(10, d);
+          return Math.round(Number(n) * f) / f;
         },
         ABS: function (n) { return Math.abs(Number(n)); },
         IF: function (cond, t, f) { return cond ? t : f; },
-        XOR: function () {
-          let c = 0;
-          for (let i = 0; i < arguments.length; i++) {
-            const a = arguments[i];
-            const n = Number(a);
-            if (a === true || (isFinite(n) && n !== 0) || (typeof a === 'string' && a !== '')) c++;
-          }
-          return (c % 2) === 1 ? 1 : 0;
-        },
-        XNOR: function () {
-          let c = 0;
-          for (let i = 0; i < arguments.length; i++) {
-            const a = arguments[i];
-            const n = Number(a);
-            if (a === true || (isFinite(n) && n !== 0) || (typeof a === 'string' && a !== '')) c++;
-          }
-          return (c % 2) === 0 ? 1 : 0;
-        },
-        AND: function () {
-          for (let i = 0; i < arguments.length; i++) {
-            const a = arguments[i];
-            const n = Number(a);
-            if (!(a === true || (isFinite(n) && n !== 0) || (typeof a === 'string' && a !== ''))) return 0;
-          }
-          return 1;
-        },
-        OR: function () {
-          for (let i = 0; i < arguments.length; i++) {
-            const a = arguments[i];
-            const n = Number(a);
-            if (a === true || (isFinite(n) && n !== 0) || (typeof a === 'string' && a !== '')) return 1;
-          }
-          return 0;
-        },
-        NOT: function (a) {
-          const n = Number(a);
-          return (a === true || (isFinite(n) && n !== 0) || (typeof a === 'string' && a !== '')) ? 0 : 1;
-        },
-        CONCAT: function () {
-          const args = Array.prototype.slice.call(arguments);
-          return args.map(String).join('');
-        }
+        CONCAT: function () { return Array.prototype.slice.call(arguments).join(''); },
+        XOR: function (a, b) { return (!!a) !== (!!b); },
+        XNOR: function (a, b) { return (!!a) === (!!b); },
+        AND: function () { for (let i = 0; i < arguments.length; i++) if (!arguments[i]) return false; return true; },
+        OR: function () { for (let i = 0; i < arguments.length; i++) if (arguments[i]) return true; return false; },
+        NOT: function (x) { return !x; }
       };
 
+      // Controlled network helpers (only available when scripts are enabled).
+      // Direct fetch often fails due to CORS (esp. from file:// origin null).
+      // We try direct first, then fall back to public CORS proxies.
+      const CORS_PROXIES = [
+        // allorigins returns JSON { contents, status }
+        (u) => 'https://api.allorigins.win/raw?url=' + encodeURIComponent(u),
+        (u) => 'https://corsproxy.io/?' + encodeURIComponent(u),
+      ];
+
+      async function fetchWithCorsFallback(url, asJson) {
+        const u = String(url || '').trim();
+        if (!u || !/^https?:\/\//i.test(u)) {
+          throw new Error('URL must start with http:// or https://');
+        }
+        const attempts = [u].concat(CORS_PROXIES.map(fn => fn(u)));
+        let lastErr = null;
+        for (let i = 0; i < attempts.length; i++) {
+          const target = attempts[i];
+          try {
+            const ctrl = (typeof AbortController !== 'undefined') ? new AbortController() : null;
+            const timer = ctrl ? setTimeout(function () { try { ctrl.abort(); } catch (_) {} }, 12000) : null;
+            const res = await fetch(target, {
+              mode: 'cors',
+              credentials: 'omit',
+              redirect: 'follow',
+              signal: ctrl ? ctrl.signal : undefined
+            });
+            if (timer) clearTimeout(timer);
+            if (!res.ok) throw new Error('HTTP ' + res.status + ' ' + res.statusText);
+            if (asJson) {
+              return { data: await res.json(), finalUrl: u, status: res.status, viaProxy: i > 0 };
+            }
+            const body = await res.text();
+            return { data: body, finalUrl: u, status: res.status, viaProxy: i > 0 };
+          } catch (e) {
+            lastErr = e && e.name === 'AbortError' ? new Error('Request timed out') : e;
+            // continue to next proxy
+          }
+        }
+        throw new Error(
+          (lastErr && lastErr.message ? lastErr.message : 'Load failed') +
+          ' (CORS blocked; tried direct + proxies). Serve this page over http://localhost or use a CORS-enabled API.'
+        );
+      }
+
+      async function fetchText(url) {
+        const r = await fetchWithCorsFallback(url, false);
+        return r.data;
+      }
+      async function fetchJSON(url) {
+        // Prefer parsing text so proxy raw responses still work
+        const r = await fetchWithCorsFallback(url, false);
+        return JSON.parse(r.data);
+      }
+      async function webpage(url) {
+        const r = await fetchWithCorsFallback(url, false);
+        const html = r.data;
+        let title = '';
+        const m = html.match(/<title[^>]*>([^<]*)<\/title>/i);
+        if (m) title = m[1].trim();
+        const text = html
+          .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+          .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+          .replace(/<[^>]+>/g, ' ')
+          .replace(/\s+/g, ' ')
+          .trim()
+          .slice(0, 2000);
+        return {
+          url: r.finalUrl,
+          status: r.status,
+          title: title,
+          text: text,
+          html: html.slice(0, 50000),
+          viaProxy: r.viaProxy
+        };
+      }
+
       const safeMath = Object.freeze({
-        abs: Math.abs, ceil: Math.ceil, floor: Math.floor, round: Math.round,
-        max: Math.max, min: Math.min, pow: Math.pow, sqrt: Math.sqrt,
-        log: Math.log, exp: Math.exp, sin: Math.sin, cos: Math.cos, tan: Math.tan,
-        PI: Math.PI, E: Math.E, random: Math.random, trunc: Math.trunc,
-        sign: Math.sign, hypot: Math.hypot
+        abs: Math.abs, acos: Math.acos, asin: Math.asin, atan: Math.atan, atan2: Math.atan2,
+        ceil: Math.ceil, cos: Math.cos, exp: Math.exp, floor: Math.floor, log: Math.log,
+        max: Math.max, min: Math.min, pow: Math.pow, random: Math.random, round: Math.round,
+        sin: Math.sin, sqrt: Math.sqrt, tan: Math.tan, PI: Math.PI, E: Math.E,
+        trunc: Math.trunc, sign: Math.sign, hypot: Math.hypot
       });
       const safeJSON = Object.freeze({
         parse: function (s) { return JSON.parse(s); },
@@ -1066,39 +1135,149 @@
       });
 
       let code = body;
-      // Detect top-level statements vs a single expression (including IIFEs).
-      // An IIFE like (()=>{ ... return x; })() contains "return" but is still
-      // an expression — we must wrap it so the outer function returns its value.
-      // Strip full-line and trailing // comments so they cannot swallow a closing );
       const stripLineComments = (s) => s.replace(/(^|\n)\s*\/\/.*(?=\n|$)/g, '$1').replace(/\/\/[^\n]*$/g, '');
       const trimmed = body.trim();
       const exprBody = stripLineComments(trimmed).trim();
       const isIife = /^\(?\s*function\b/.test(trimmed) || /^\(\s*\(\)\s*=>/.test(trimmed) || /^\(\s*async\s*\(\)\s*=>/.test(trimmed);
-      const startsWithDecl = /^(return|let |const |var |if\s*\(|for\s*\(|while\s*\(|switch\s*\()/.test(trimmed);
+      const startsWithDecl = /^(return|let |const |var |if\s*\(|for\s*\(|while\s*\(|switch\s*\(|async\s)/.test(trimmed);
       const looksLikeStatements = startsWithDecl || (body.includes(';') && !isIife);
+      const usesAwait = /\bawait\b/.test(body);
       if (!looksLikeStatements) {
         code = 'return (' + (exprBody || 'null') + ');';
       } else if (!/(?:^|\n)\s*return\b/.test(body)) {
         code = body + '\n;return undefined;';
       }
 
+      // Detect whether this script needs async (await / network helpers).
+      // Sync scripts use normal Function so they never flash "Loading…".
+      const needsAsync = /\bawait\b/.test(body)
+        || /\bfetchText\b/.test(body)
+        || /\bfetchJSON\b/.test(body)
+        || /\bwebpage\b/.test(body);
+
+      // Shared arg lists for Function / AsyncFunction
+      const argNames = [
+        'cell', 'range', 'row', 'col', 'colLetter', 'table',
+        'fg', 'bg', 'style', 'color',
+        'SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'ROUND', 'ABS', 'IF', 'CONCAT',
+        'XOR', 'XNOR', 'AND', 'OR', 'NOT',
+        'Math', 'Number', 'String', 'Array', 'JSON',
+        'fetchText', 'fetchJSON', 'webpage'
+      ];
+      const argValues = [
+        helpers.cell, helpers.range, helpers.row, helpers.col, helpers.colLetter, helpers.table,
+        helpers.fg, helpers.bg, helpers.style, helpers.color,
+        helpers.SUM, helpers.AVERAGE, helpers.MIN, helpers.MAX, helpers.COUNT, helpers.COUNTA,
+        helpers.ROUND, helpers.ABS, helpers.IF, helpers.CONCAT,
+        helpers.XOR, helpers.XNOR, helpers.AND, helpers.OR, helpers.NOT,
+        safeMath, Number, String, Array, safeJSON,
+        fetchText, fetchJSON, webpage
+      ];
+
+      // Normalize a resolved script value for display / cache
+      function normalizeScriptResult(resolved) {
+        if (typeof resolved === 'number' && !isFinite(resolved)) return '#NUM!';
+        if (resolved === undefined) return null;
+        if (resolved && typeof resolved === 'object' && !Array.isArray(resolved) &&
+            'url' in resolved && 'status' in resolved && 'title' in resolved) {
+          return (resolved.title ? resolved.title + ' — ' : '') +
+            resolved.url + ' [' + resolved.status + ']' +
+            (resolved.viaProxy ? ' (proxy)' : '') +
+            '\n' + (resolved.text || '');
+        }
+        if (resolved && typeof resolved === 'object' && !Array.isArray(resolved) &&
+            !('value' in resolved || 'v' in resolved) && !resolved.__sqlsheet_style) {
+          try { return JSON.stringify(resolved); } catch (_) { return String(resolved); }
+        }
+        return resolved;
+      }
+
+      // Cache key must match getCellValue's cellKey(ref, table)
+      const tableForKey = tableName || currentTable || '';
+      const refForKey = colLetter + (rowIdx + 1);
+      const cacheKey = tableForKey + '!' + refForKey;
+
+      function applyResolvedToGrid(resolved) {
+        const val = normalizeScriptResult(resolved);
+        evalCache.set(cacheKey, val);
+        if (typeof pendingAsyncCells !== 'undefined') {
+          pendingAsyncCells.delete(cacheKey);
+          pendingAsyncCells.delete(cacheKey + ':display');
+        }
+        // Always full re-render — soft DOM updates were unreliable
+        try {
+          if (tableForKey === (currentTable || '') || !tableForKey) {
+            // Prefer targeted update if the cell input still exists
+            const inp = document.querySelector(
+              'input.cell[data-ref="' + refForKey.replace(/"/g, '\\"') + '"]'
+            );
+            if (inp) {
+              const disp = (typeof formatDisplay === 'function') ? formatDisplay(val) : String(val ?? '');
+              inp.value = disp;
+              const isErr = typeof val === 'string' && val.startsWith('#');
+              inp.classList.toggle('is-error', isErr);
+              setStatus(isErr ? String(val).slice(0, 80) : 'Script ready');
+              return;
+            }
+          }
+        } catch (_) {}
+        try { renderGrid(); } catch (_) {}
+      }
+
       try {
-        const fn = new Function(
-          'cell', 'range', 'row', 'col', 'colLetter', 'table',
-          'fg', 'bg', 'style', 'color',
-          'SUM', 'AVERAGE', 'MIN', 'MAX', 'COUNT', 'COUNTA', 'ROUND', 'ABS', 'IF', 'CONCAT',
-          'XOR', 'XNOR', 'AND', 'OR', 'NOT',
-          'Math', 'Number', 'String', 'Array', 'JSON',
+        if (!needsAsync) {
+          const fn = new Function(
+            ...argNames,
+            '"use strict";\n' + code
+          );
+          let result = fn(...argValues);
+          // In case a sync script still returned a thenable
+          if (result && typeof result.then === 'function') {
+            if (pendingAsyncCells.has(cacheKey)) {
+              return pendingAsyncCells.get(cacheKey + ':display') || '⏳ Loading…';
+            }
+            pendingAsyncCells.set(cacheKey, true);
+            pendingAsyncCells.set(cacheKey + ':display', '⏳ Loading…');
+            result.then(applyResolvedToGrid, function (err) {
+              applyResolvedToGrid('#JS! ' + (err && err.message ? err.message : String(err)));
+            });
+            return '⏳ Loading…';
+          }
+          if (typeof result === 'number' && !isFinite(result)) return '#NUM!';
+          return result === undefined ? null : result;
+        }
+
+        // Async path
+        const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
+        const fn = new AsyncFunction(
+          ...argNames,
           '"use strict";\n' + code
         );
-        let result = fn(
-          helpers.cell, helpers.range, helpers.row, helpers.col, helpers.colLetter, helpers.table,
-          helpers.fg, helpers.bg, helpers.style, helpers.color,
-          helpers.SUM, helpers.AVERAGE, helpers.MIN, helpers.MAX, helpers.COUNT, helpers.COUNTA,
-          helpers.ROUND, helpers.ABS, helpers.IF, helpers.CONCAT,
-          helpers.XOR, helpers.XNOR, helpers.AND, helpers.OR, helpers.NOT,
-          safeMath, Number, String, Array, safeJSON
-        );
+        const resultOrPromise = fn(...argValues);
+
+        if (resultOrPromise && typeof resultOrPromise.then === 'function') {
+          if (pendingAsyncCells.has(cacheKey)) {
+            return pendingAsyncCells.get(cacheKey + ':display') || '⏳ Loading…';
+          }
+          pendingAsyncCells.set(cacheKey, true);
+          pendingAsyncCells.set(cacheKey + ':display', '⏳ Loading…');
+          // Safety timeout so cells never stick on Loading forever
+          const TIMEOUT_MS = 20000;
+          const timeoutPromise = new Promise(function (_, reject) {
+            setTimeout(function () {
+              reject(new Error('Timed out after ' + (TIMEOUT_MS / 1000) + 's'));
+            }, TIMEOUT_MS);
+          });
+          Promise.race([resultOrPromise, timeoutPromise]).then(
+            applyResolvedToGrid,
+            function (err) {
+              applyResolvedToGrid('#JS! ' + (err && err.message ? err.message : String(err)));
+            }
+          );
+          return '⏳ Loading…';
+        }
+
+        let result = resultOrPromise;
         if (typeof result === 'number' && !isFinite(result)) return '#NUM!';
         return result === undefined ? null : result;
       } catch (e) {
@@ -2079,7 +2258,7 @@
     function loadFmtCache(tableName) {
       fmtCache = new Map();
       if (!db || !tableName) return;
-      ensureFmtTable();
+      ensureFmtTable(); ensureLayoutTable();
       try {
         const stmt = db.prepare(
           `SELECT rowid, col_name, text_color, bg_color FROM ${quoteIdent(FMT_TABLE)} WHERE table_name = ?`
@@ -2102,7 +2281,7 @@
 
     function setCellFmt(tableName, rowid, colName, textColor, bgColor) {
       if (!db || !tableName) return;
-      ensureFmtTable();
+      ensureFmtTable(); ensureLayoutTable();
       const tc = (textColor || '').trim();
       const bc = (bgColor || '').trim();
       const key = String(rowid) + '|' + colName;
@@ -2131,7 +2310,179 @@
       }
     }
 
+    // ── Layout meta table (_sqlsheets_layout) ─────────────────────────────
+    // Stores column widths and row heights per table. Survives Export/Import.
+    // kind = 'col' → key = column name, size = width px
+    // kind = 'row' → key = rowid as text, size = height px
+    function ensureLayoutTable() {
+      if (!db) return;
+      try {
+        db.run(`CREATE TABLE IF NOT EXISTS ${quoteIdent(LAYOUT_TABLE)} (
+          table_name TEXT NOT NULL,
+          kind TEXT NOT NULL,
+          key TEXT NOT NULL,
+          size REAL NOT NULL,
+          PRIMARY KEY (table_name, kind, key)
+        )`);
+      } catch (_) {}
+    }
+
+    function loadLayoutCache(tableName) {
+      layoutCache = { cols: new Map(), rows: new Map() };
+      if (!db || !tableName) return;
+      ensureLayoutTable();
+      try {
+        const stmt = db.prepare(
+          `SELECT kind, key, size FROM ${quoteIdent(LAYOUT_TABLE)} WHERE table_name = ?`
+        );
+        stmt.bind([tableName]);
+        while (stmt.step()) {
+          const r = stmt.getAsObject();
+          const sz = Number(r.size);
+          if (!isFinite(sz)) continue;
+          if (r.kind === 'col') layoutCache.cols.set(String(r.key), sz);
+          else if (r.kind === 'row') layoutCache.rows.set(String(r.key), sz);
+        }
+        stmt.free();
+      } catch (_) {}
+    }
+
+    function getColWidth(colName) {
+      const w = layoutCache.cols.get(String(colName));
+      return (w != null && isFinite(w)) ? w : DEFAULT_COL_W;
+    }
+    function getRowHeight(rowid) {
+      const h = layoutCache.rows.get(String(rowid));
+      return (h != null && isFinite(h)) ? h : DEFAULT_ROW_H;
+    }
+
+    function setLayoutSize(tableName, kind, key, size) {
+      if (!db || !tableName) return;
+      ensureLayoutTable();
+      const k = String(key);
+      const sz = Math.round(Number(size));
+      if (!isFinite(sz)) return;
+      try {
+        db.run(
+          `INSERT INTO ${quoteIdent(LAYOUT_TABLE)} (table_name, kind, key, size)
+           VALUES (?, ?, ?, ?)
+           ON CONFLICT(table_name, kind, key) DO UPDATE SET size = excluded.size`,
+          [tableName, kind, k, sz]
+        );
+        if (kind === 'col') layoutCache.cols.set(k, sz);
+        else if (kind === 'row') layoutCache.rows.set(k, sz);
+      } catch (e) {
+        toast('Layout save failed: ' + e.message, 'error');
+      }
+    }
+
+    function clearLayoutSize(tableName, kind, key) {
+      if (!db || !tableName) return;
+      ensureLayoutTable();
+      try {
+        db.run(
+          `DELETE FROM ${quoteIdent(LAYOUT_TABLE)} WHERE table_name = ? AND kind = ? AND key = ?`,
+          [tableName, kind, String(key)]
+        );
+        if (kind === 'col') layoutCache.cols.delete(String(key));
+        else if (kind === 'row') layoutCache.rows.delete(String(key));
+      } catch (_) {}
+    }
+
+    // ── Mouse resize interaction ──────────────────────────────────────────
+    let resizeState = null; // { type:'col'|'row', index, startX/Y, startSize, colName|rowid, handle }
+
+    function onResizeMove(e) {
+      if (!resizeState) return;
+      e.preventDefault();
+      if (resizeState.type === 'col') {
+        const dx = e.clientX - resizeState.startX;
+        let w = Math.max(MIN_COL_W, Math.min(MAX_COL_W, resizeState.startSize + dx));
+        resizeState.current = w;
+        // Live update column cells
+        const tbl = document.querySelector('table.grid');
+        if (!tbl) return;
+        const colIdx = resizeState.index;
+        tbl.querySelectorAll('th[data-col="' + colIdx + '"], td[data-col="' + colIdx + '"]').forEach(el => {
+          el.style.width = w + 'px';
+          el.style.minWidth = w + 'px';
+          el.style.maxWidth = w + 'px';
+        });
+      } else {
+        const dy = e.clientY - resizeState.startY;
+        let h = Math.max(MIN_ROW_H, Math.min(MAX_ROW_H, resizeState.startSize + dy));
+        resizeState.current = h;
+        const tr = document.querySelector('table.grid tr[data-rowid="' + resizeState.rowid + '"]');
+        if (!tr) return;
+        tr.querySelectorAll('td').forEach(el => {
+          el.style.height = h + 'px';
+        });
+      }
+    }
+
+    function onResizeEnd(e) {
+      if (!resizeState) return;
+      document.removeEventListener('mousemove', onResizeMove);
+      document.removeEventListener('mouseup', onResizeEnd);
+      document.body.classList.remove('resizing-col', 'resizing-row');
+      if (resizeState.handle) resizeState.handle.classList.remove('active');
+      const final = resizeState.current != null ? resizeState.current : resizeState.startSize;
+      if (currentTable) {
+        if (resizeState.type === 'col') {
+          setLayoutSize(currentTable, 'col', resizeState.colName, final);
+          setStatus('Column width ' + Math.round(final) + 'px · saved to SQLite');
+        } else {
+          setLayoutSize(currentTable, 'row', resizeState.rowid, final);
+          setStatus('Row height ' + Math.round(final) + 'px · saved to SQLite');
+        }
+      }
+      resizeState = null;
+    }
+
+    function startColResize(e, colIdx, colName, handle) {
+      e.preventDefault();
+      e.stopPropagation();
+      const startW = getColWidth(colName);
+      // Prefer live measured width if available
+      const th = handle.closest('th');
+      const measured = th ? th.getBoundingClientRect().width : startW;
+      resizeState = {
+        type: 'col',
+        index: colIdx,
+        colName: colName,
+        startX: e.clientX,
+        startSize: measured || startW,
+        current: measured || startW,
+        handle: handle
+      };
+      handle.classList.add('active');
+      document.body.classList.add('resizing-col');
+      document.addEventListener('mousemove', onResizeMove);
+      document.addEventListener('mouseup', onResizeEnd);
+    }
+
+    function startRowResize(e, rowid, handle) {
+      e.preventDefault();
+      e.stopPropagation();
+      const startH = getRowHeight(rowid);
+      const td = handle.closest('td');
+      const measured = td ? td.getBoundingClientRect().height : startH;
+      resizeState = {
+        type: 'row',
+        rowid: rowid,
+        startY: e.clientY,
+        startSize: measured || startH,
+        current: measured || startH,
+        handle: handle
+      };
+      handle.classList.add('active');
+      document.body.classList.add('resizing-row');
+      document.addEventListener('mousemove', onResizeMove);
+      document.addEventListener('mouseup', onResizeEnd);
+    }
+
     function applyFmtToSelection() {
+
       if (selectedRow == null || !selectedCol || !currentTable) {
         toast('Select a cell first', 'error');
         return;
@@ -2174,6 +2525,8 @@
       updateScriptsBadge();
       updateSimControls();
       evalCache.clear();
+      if (typeof pendingAsyncCells !== 'undefined') pendingAsyncCells.clear();
+      if (typeof pendingAsyncCells !== 'undefined') pendingAsyncCells.clear();
       if (currentTable) {
         loadGridData();
         renderGrid();
@@ -2340,7 +2693,7 @@
         });
         db = new SQL.Database();
         try { db.run("PRAGMA foreign_keys = ON"); } catch (_) {}
-        ensureFmtTable();
+        ensureFmtTable(); ensureLayoutTable();
         scriptsEnabled = false;
         updateScriptsBadge();
         setStatus('Ready · in-memory SQLite · scripts off');
@@ -2385,7 +2738,7 @@
       selectedRow = null;
       selectedCol = null;
       selectedColIdx = null;
-      loadFmtCache(name);
+      loadFmtCache(name); loadLayoutCache(name);
       selectedRowIdx = null;
       document.getElementById('btnDelRow').disabled = true;
       document.getElementById('btnDelCol').disabled = true;
@@ -2453,10 +2806,11 @@
       html += '<th class="row-num">#</th>';
       colNames.forEach((c, i) => {
         const letter = colIndexToLetter(i);
-        html += `<th data-col="${i}"><div class="col-header-inner">
+        const cw = getColWidth(c);
+        html += `<th data-col="${i}" data-colname="${escapeHtml(c)}" style="width:${cw}px;min-width:${cw}px;max-width:${cw}px"><div class="col-header-inner">
           <span class="col-letter">${letter}</span>
           <input value="${escapeHtml(c)}" data-old="${escapeHtml(c)}" title="Rename column (formulas use letter ${letter})">
-        </div></th>`;
+        </div><div class="col-resize-handle" data-col="${i}" data-colname="${escapeHtml(c)}" title="Drag to resize column"></div></th>`;
       });
       html += '</tr></thead><tbody>';
 
@@ -2464,8 +2818,9 @@
         html += `<tr><td class="row-num"></td><td colspan="${colNames.length}" style="padding:12px;color:var(--text-muted);text-align:center">Empty table — click + Row. Formulas: =SUM(A1:A5), =OtherTable!B2, =SUM(orders!C:C)</td></tr>`;
       } else {
         rows.forEach((row, ri) => {
+          const rh = getRowHeight(row.rowid);
           html += `<tr data-rowid="${row.rowid}" data-rowidx="${ri}">`;
-          html += `<td class="row-num">${ri + 1}</td>`;
+          html += `<td class="row-num" style="height:${rh}px"><span>${ri + 1}</span><div class="row-resize-handle" data-rowid="${row.rowid}" title="Drag to resize row"></div></td>`;
           for (let ci = 0; ci < colNames.length; ci++) {
             const raw = row.values[ci];
             const letter = colIndexToLetter(ci);
@@ -2498,7 +2853,12 @@
             }
             const tdStyle = fmt.bg_color ? ` style="background-color:${escapeHtml(fmt.bg_color)}"` : '';
             const extraCls = (fmt.text_color ? ' has-text-color' : '') + (fmt.bg_color ? ' has-bg' : '');
-            html += `<td class="${lifeCls.trim()}" data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${tdStyle}>
+            const cellW = getColWidth(colNames[ci]);
+            const sizeStyle = `width:${cellW}px;min-width:${cellW}px;max-width:${cellW}px;height:${rh}px`;
+            const mergedTdStyle = tdStyle
+              ? tdStyle.replace('style="', `style="${sizeStyle};`)
+              : ` style="${sizeStyle}"`;
+            html += `<td class="${lifeCls.trim()}" data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${mergedTdStyle}>
               <input class="cell ${cls}${extraCls}" value="${escapeHtml(display)}"${styleAttr}
                      data-raw="${escapeHtml(raw ?? '')}"
                      data-rowid="${row.rowid}" data-col="${escapeHtml(colNames[ci])}"
@@ -2511,6 +2871,18 @@
       }
       html += '</tbody></table>';
       wrap.innerHTML = html;
+
+      // Column / row resize handles
+      wrap.querySelectorAll('.col-resize-handle').forEach(h => {
+        h.addEventListener('mousedown', (e) => {
+          startColResize(e, parseInt(h.dataset.col, 10), h.dataset.colname, h);
+        });
+      });
+      wrap.querySelectorAll('.row-resize-handle').forEach(h => {
+        h.addEventListener('mousedown', (e) => {
+          startRowResize(e, h.dataset.rowid, h);
+        });
+      });
 
       // Cell handlers
       wrap.querySelectorAll('input.cell').forEach(inp => {
@@ -2917,7 +3289,7 @@
           // Default-deny scripts until user confirms (checked below)
           scriptsEnabled = false;
           updateScriptsBadge();
-          ensureFmtTable();
+          ensureFmtTable(); ensureLayoutTable();
           refreshTableList();
           renderGrid();
           const tables = getTables();
@@ -3265,6 +3637,9 @@
                 <tr><td><code class="script">{ value, color, bg }</code></td><td><code class="script">return {v:1, bg:'#22c55e'}</code></td><td>Object form</td></tr>
                 <tr><td><code class="script">ROUND</code> <code class="script">ABS</code> <code class="script">IF</code> <code class="script">CONCAT</code></td><td><code class="script">ROUND(x,2)</code></td><td>Utilities</td></tr>
                 <tr><td><code class="script">Math</code> <code class="script">JSON</code> …</td><td><code class="script">Math.sqrt(cell('A1'))</code></td><td>Standard JS objects</td></tr>
+                <tr><td><code class="script">fetchText(url)</code></td><td><code class="script">await fetchText('https://…')</code></td><td>Fetch URL body as text (async)</td></tr>
+                <tr><td><code class="script">fetchJSON(url)</code></td><td><code class="script">await fetchJSON('https://…/api')</code></td><td>Fetch &amp; parse JSON (async)</td></tr>
+                <tr><td><code class="script">webpage(url)</code></td><td><code class="script">await webpage('https://…')</code></td><td>Title, status, text preview, html</td></tr>
               </table>
               <h4>script= examples</h4>
               <table>
@@ -3275,8 +3650,11 @@
                 <tr><td><code class="script">script=return cell('A1')&gt;10?'High':'Low'</code></td><td>Ternary</td></tr>
                 <tr><td><code class="script">script=return row+col</code></td><td>Position-based value</td></tr>
                 <tr><td><code class="script">script=JSON.stringify(range('A1:C1'))</code></td><td>Debug range</td></tr>
+                <tr><td><code class="script">script=await fetchText('https://example.com')</code></td><td>HTML source of the page</td></tr>
+                <tr><td><code class="script">script=await webpage('https://example.com')</code></td><td>Title + URL + text preview</td></tr>
+                <tr><td><code class="script">script=(await webpage(cell('A1'))).title</code></td><td>Page title from URL in A1</td></tr>
               </table>
-              <p>Scripts run in a limited function scope (not full page <code>window</code>). Errors show as <code>#JS! …</code>.</p>
+              <p>Scripts run in a limited function scope (not full page <code>window</code>). Network helpers require <strong>Scripts: on</strong>. Async cells show <code>⏳ Loading…</code> until the request finishes. Target sites must allow CORS. Errors show as <code>#JS! …</code>.</p>
             </div>
 
             <div class="help-section" data-section="sql">
