@@ -437,6 +437,37 @@
       color: var(--text-muted);
     }
     .sql-results tr:hover td { background: var(--surface2); }
+    /* Chart modal */
+    .chart-modal-backdrop {
+      position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 9000;
+      display: flex; align-items: center; justify-content: center; padding: 16px;
+    }
+    .chart-modal {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 10px;
+      width: min(920px, 96vw); max-height: 92vh; display: flex; flex-direction: column;
+      box-shadow: 0 20px 50px rgba(0,0,0,.45);
+    }
+    .chart-modal-header {
+      display: flex; align-items: center; gap: 10px; padding: 12px 14px;
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+    }
+    .chart-modal-header h3 { font-size: 14px; font-weight: 600; margin: 0; }
+    .chart-modal-body { padding: 12px 14px; overflow: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; }
+    .chart-controls {
+      display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end;
+    }
+    .chart-controls label {
+      font-size: 11px; color: var(--text-muted); display: flex; flex-direction: column; gap: 3px;
+    }
+    .chart-controls select, .chart-controls input[type=text] {
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 6px; padding: 5px 8px; font-size: 12px; min-width: 110px;
+    }
+    .chart-canvas-wrap {
+      position: relative; height: min(420px, 50vh); background: var(--bg);
+      border: 1px solid var(--border); border-radius: 8px; padding: 8px;
+    }
+    .chart-hint { font-size: 11px; color: var(--text-muted); line-height: 1.4; }
     .empty {
       display: flex;
       flex-direction: column;
@@ -681,7 +712,7 @@
             <code style="color:var(--formula)">=SUM(A1:A10)</code> ·
             <code style="color:var(--script)">script=cell('A1')*2</code> ·
             <code style="color:var(--sql)">sql=SELECT COUNT(*) FROM t</code></p>
-          <p class="hint">Built for privacy-sensitive and regulated environments: agency analysis, FOIA prep, inventory, budgets, and offline field work. Scripts are disabled by default.</p>
+          <p class="hint">Built for privacy-sensitive and regulated environments: agency analysis, FOIA prep, inventory, budgets, and offline field work. Run SQL, then use <strong>Chart</strong> to visualize results. Scripts are disabled by default.</p>
           <div class="demo-btns">
             <button class="btn primary" id="btnEmptyNewTable">Create table</button>
             <button class="btn" id="btnEmptyOpen">Import SQLite</button>
@@ -711,6 +742,7 @@
               <button class="btn primary" id="btnRunSql">Run</button>
               <button class="btn" id="btnClearSql">Clear</button>
               <button class="btn" id="btnSaveAsTable" title="Save query result as new table" disabled>Save result as table</button>
+              <button class="btn success" id="btnChart" title="Create a chart from the last query result or current table" disabled>Chart</button>
             </div>
           </div>
           <div class="sql-results" id="sqlResults">
@@ -2757,6 +2789,9 @@
       refreshTableList();
       renderGrid();
       updateSimControls();
+      // Enable Chart when a table is open (uses table data if no query result)
+      const chartBtn = document.getElementById('btnChart');
+      if (chartBtn) chartBtn.disabled = false;
     }
 
     function getTableInfo(name) {
@@ -3183,6 +3218,208 @@
       }
     }
 
+    // ── Charts (Chart.js loaded on demand from jsDelivr) ───────────────────
+    let chartJsLoading = null;
+    let activeChart = null;
+
+    function loadChartJs() {
+      if (window.Chart) return Promise.resolve(window.Chart);
+      if (chartJsLoading) return chartJsLoading;
+      chartJsLoading = new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.8/dist/chart.umd.min.js';
+        s.crossOrigin = 'anonymous';
+        s.referrerPolicy = 'no-referrer';
+        s.onload = () => resolve(window.Chart);
+        s.onerror = () => {
+          chartJsLoading = null;
+          reject(new Error('Failed to load Chart.js (network required once, or self-host the library)'));
+        };
+        document.head.appendChild(s);
+      });
+      return chartJsLoading;
+    }
+
+    function getChartSourceData() {
+      if (lastQueryResult && lastQueryResult.columns && lastQueryResult.values && lastQueryResult.values.length) {
+        return { columns: lastQueryResult.columns, values: lastQueryResult.values, label: 'Query result' };
+      }
+      // Fallback: current table (first 2000 rows)
+      if (currentTable && db) {
+        try {
+          const r = db.exec(`SELECT * FROM ${quoteIdent(currentTable)} LIMIT 2000`);
+          if (r.length && r[0].values.length) {
+            return { columns: r[0].columns, values: r[0].values, label: currentTable };
+          }
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    function guessLabelAndValueCols(columns, values) {
+      let labelIdx = 0;
+      let valueIdx = -1;
+      for (let i = 0; i < columns.length; i++) {
+        const sample = values.slice(0, 30).map(row => row[i]);
+        const nums = sample.filter(v => v !== null && v !== '' && !isNaN(Number(v)));
+        if (nums.length >= Math.max(1, sample.length * 0.5) && valueIdx < 0 && i !== 0) {
+          valueIdx = i;
+        }
+      }
+      if (valueIdx < 0) {
+        for (let i = columns.length - 1; i >= 0; i--) {
+          const sample = values.slice(0, 20).map(row => row[i]);
+          if (sample.some(v => v !== null && !isNaN(Number(v)))) { valueIdx = i; break; }
+        }
+      }
+      if (valueIdx < 0) valueIdx = Math.min(1, columns.length - 1);
+      if (labelIdx === valueIdx) labelIdx = valueIdx === 0 ? Math.min(1, columns.length - 1) : 0;
+      return { labelIdx, valueIdx };
+    }
+
+    const CHART_COLORS = [
+      '#3b82f6', '#22c55e', '#f59e0b', '#ef4444', '#a78bfa',
+      '#38bdf8', '#34d399', '#fb7185', '#fbbf24', '#818cf8'
+    ];
+
+    function buildChartConfig(type, labels, datasets, title) {
+      const isPie = type === 'pie' || type === 'doughnut';
+      return {
+        type,
+        data: {
+          labels,
+          datasets: datasets.map((ds, i) => ({
+            label: ds.label,
+            data: ds.data,
+            backgroundColor: isPie
+              ? labels.map((_, j) => CHART_COLORS[j % CHART_COLORS.length] + 'cc')
+              : (CHART_COLORS[i % CHART_COLORS.length] + (type === 'line' ? '33' : 'cc')),
+            borderColor: isPie
+              ? labels.map((_, j) => CHART_COLORS[j % CHART_COLORS.length])
+              : CHART_COLORS[i % CHART_COLORS.length],
+            borderWidth: 2,
+            tension: 0.25,
+            fill: type === 'line' ? true : undefined
+          }))
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: {
+            legend: { labels: { color: '#e8eef7' } },
+            title: { display: !!title, text: title || '', color: '#e8eef7', font: { size: 14 } }
+          },
+          scales: isPie ? {} : {
+            x: { ticks: { color: '#8494ad' }, grid: { color: '#2a3548' } },
+            y: { ticks: { color: '#8494ad' }, grid: { color: '#2a3548' }, beginAtZero: true }
+          }
+        }
+      };
+    }
+
+    async function openChartModal() {
+      const src = getChartSourceData();
+      if (!src) {
+        toast('Run a SELECT query (or open a table) first', 'error');
+        return;
+      }
+      try {
+        await loadChartJs();
+      } catch (e) {
+        toast(e.message, 'error');
+        return;
+      }
+
+      const { labelIdx: defL, valueIdx: defV } = guessLabelAndValueCols(src.columns, src.values);
+      const backdrop = document.createElement('div');
+      backdrop.className = 'chart-modal-backdrop';
+      backdrop.innerHTML = `
+        <div class="chart-modal" role="dialog" aria-label="Chart builder">
+          <div class="chart-modal-header">
+            <h3>Chart — ${escapeHtml(src.label)}</h3>
+            <div class="spacer"></div>
+            <button class="btn" id="chartDownloadPng" title="Download chart as PNG">Download PNG</button>
+            <button class="btn" id="chartClose">Close</button>
+          </div>
+          <div class="chart-modal-body">
+            <div class="chart-controls">
+              <label>Type
+                <select id="chartType">
+                  <option value="bar">Bar</option>
+                  <option value="line">Line</option>
+                  <option value="pie">Pie</option>
+                  <option value="doughnut">Doughnut</option>
+                  <option value="scatter">Scatter</option>
+                </select>
+              </label>
+              <label>Labels (X / categories)
+                <select id="chartLabelCol"></select>
+              </label>
+              <label>Values (Y)
+                <select id="chartValueCol"></select>
+              </label>
+              <label>Extra series (optional)
+                <select id="chartValueCol2"><option value="">— none —</option></select>
+              </label>
+              <label>Title
+                <input type="text" id="chartTitle" value="${escapeHtml(src.label)}" style="min-width:160px">
+              </label>
+              <button class="btn primary" id="chartRender">Update chart</button>
+            </div>
+            <p class="chart-hint">Uses the last SQL result when available, otherwise the current table (up to 2,000 rows). Pie/doughnut work best with a category column + one numeric column. Chart.js loads once from jsDelivr (or self-host for air-gapped use).</p>
+            <div class="chart-canvas-wrap"><canvas id="chartCanvas"></canvas></div>
+          </div>
+        </div>`;
+      document.body.appendChild(backdrop);
+
+      const labelSel = backdrop.querySelector('#chartLabelCol');
+      const valueSel = backdrop.querySelector('#chartValueCol');
+      const valueSel2 = backdrop.querySelector('#chartValueCol2');
+      src.columns.forEach((c, i) => {
+        const o1 = document.createElement('option'); o1.value = i; o1.textContent = c; if (i === defL) o1.selected = true; labelSel.appendChild(o1);
+        const o2 = document.createElement('option'); o2.value = i; o2.textContent = c; if (i === defV) o2.selected = true; valueSel.appendChild(o2);
+        const o3 = document.createElement('option'); o3.value = i; o3.textContent = c; valueSel2.appendChild(o3);
+      });
+
+      function renderFromControls() {
+        const type = backdrop.querySelector('#chartType').value;
+        const li = parseInt(labelSel.value, 10);
+        const vi = parseInt(valueSel.value, 10);
+        const vi2 = valueSel2.value === '' ? -1 : parseInt(valueSel2.value, 10);
+        const title = backdrop.querySelector('#chartTitle').value.trim();
+        const maxPts = 500;
+        const rows = src.values.slice(0, maxPts);
+        const labels = rows.map(r => r[li] == null ? '' : String(r[li]));
+        const toNum = v => (v === null || v === '' || isNaN(Number(v))) ? null : Number(v);
+        const datasets = [{ label: src.columns[vi], data: rows.map(r => toNum(r[vi])) }];
+        if (vi2 >= 0 && vi2 !== vi) {
+          datasets.push({ label: src.columns[vi2], data: rows.map(r => toNum(r[vi2])) });
+        }
+        if (activeChart) { activeChart.destroy(); activeChart = null; }
+        const canvas = backdrop.querySelector('#chartCanvas');
+        activeChart = new Chart(canvas, buildChartConfig(type, labels, datasets, title));
+      }
+
+      backdrop.querySelector('#chartRender').onclick = renderFromControls;
+      backdrop.querySelector('#chartType').onchange = renderFromControls;
+      labelSel.onchange = renderFromControls;
+      valueSel.onchange = renderFromControls;
+      valueSel2.onchange = renderFromControls;
+      backdrop.querySelector('#chartClose').onclick = () => {
+        if (activeChart) { activeChart.destroy(); activeChart = null; }
+        backdrop.remove();
+      };
+      backdrop.addEventListener('click', e => { if (e.target === backdrop) backdrop.querySelector('#chartClose').click(); });
+      backdrop.querySelector('#chartDownloadPng').onclick = () => {
+        if (!activeChart) return;
+        const a = document.createElement('a');
+        a.href = activeChart.toBase64Image('image/png', 1);
+        a.download = (backdrop.querySelector('#chartTitle').value.trim() || 'chart') + '.png';
+        a.click();
+      };
+      renderFromControls();
+    }
+
     // ── SQL console ────────────────────────────────────────────────────────
     function runSql() {
       const sql = document.getElementById('sqlInput').value.trim();
@@ -3205,12 +3442,16 @@
         if (!results.length) {
           resultsEl.innerHTML = '<div class="msg">Query executed successfully (no result set).</div>';
           setStatus('Query OK');
+          const chartBtn0 = document.getElementById('btnChart');
+          if (chartBtn0) chartBtn0.disabled = true;
           return;
         }
 
         const r = results[0];
         lastQueryResult = r;
         saveBtn.disabled = false;
+        const chartBtn = document.getElementById('btnChart');
+        if (chartBtn) chartBtn.disabled = !(r.columns && r.columns.length && r.values && r.values.length);
 
         let html = '<table><thead><tr>';
         r.columns.forEach(c => { html += `<th>${escapeHtml(c)}</th>`; });
@@ -3232,6 +3473,8 @@
       } catch (e) {
         resultsEl.innerHTML = `<div class="error">${escapeHtml(e.message)}</div>`;
         setStatus('Query error');
+        const chartBtnErr = document.getElementById('btnChart');
+        if (chartBtnErr) chartBtnErr.disabled = true;
       }
     }
 
@@ -3870,8 +4113,11 @@
       document.getElementById('sqlResults').innerHTML = '<div class="msg">Results appear here.</div>';
       lastQueryResult = null;
       document.getElementById('btnSaveAsTable').disabled = true;
+      const chartBtn = document.getElementById('btnChart');
+      if (chartBtn) chartBtn.disabled = true;
     };
     document.getElementById('btnSaveAsTable').onclick = saveResultAsTable;
+    document.getElementById('btnChart').onclick = openChartModal;
 
     document.getElementById('sqlInput').addEventListener('keydown', e => {
       if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {

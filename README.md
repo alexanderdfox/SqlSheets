@@ -49,7 +49,8 @@ Everything runs in the browser. No data leaves the machine.
 - Create, drop, and manage multiple tables
 - SQL Console for arbitrary queries
 - Recalculate formulas on demand
-- Works entirely offline once loaded
+- **Charts** from query results or the current table (bar, line, pie, doughnut, scatter); download as PNG
+- Works entirely offline once loaded (Chart.js loads once from CDN on first chart use, or self-host for air-gap)
 - Content-Security-Policy enforced; scripts sandboxed and default-deny
 
 ---
