@@ -343,6 +343,93 @@
     table.grid input.cell.is-script { color: #34d399; }
     table.grid input.cell.is-sql { color: #38bdf8; }
     table.grid input.cell.is-error { color: var(--danger); }
+    table.grid input.cell.is-md { color: #f472b6; }
+    table.grid input.cell.is-html { color: #fb923c; }
+    table.grid input.cell.is-css { color: #a3e635; }
+    /* Rich cells (md= / html= / css=): rendered content + editable input overlay */
+    table.grid td.cell-rich {
+      padding: 0;
+      vertical-align: top;
+      overflow: hidden;
+      position: relative;
+    }
+    table.grid td.cell-rich .cell-rich-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 24px;
+      overflow: auto;
+      padding: 2px 6px;
+      font-size: 12px;
+      line-height: 1.35;
+      word-break: break-word;
+    }
+    table.grid td.cell-rich .cell-rich-wrap p { margin: 0 0 0.35em; }
+    table.grid td.cell-rich .cell-rich-wrap p:last-child { margin-bottom: 0; }
+    table.grid td.cell-rich .cell-rich-wrap h1,
+    table.grid td.cell-rich .cell-rich-wrap h2,
+    table.grid td.cell-rich .cell-rich-wrap h3,
+    table.grid td.cell-rich .cell-rich-wrap h4 {
+      margin: 0.2em 0;
+      font-size: 1em;
+      font-weight: 700;
+      line-height: 1.25;
+    }
+    table.grid td.cell-rich .cell-rich-wrap h1 { font-size: 1.15em; }
+    table.grid td.cell-rich .cell-rich-wrap ul,
+    table.grid td.cell-rich .cell-rich-wrap ol { margin: 0.2em 0; padding-left: 1.2em; }
+    table.grid td.cell-rich .cell-rich-wrap code {
+      background: rgba(255,255,255,0.08);
+      padding: 1px 4px;
+      border-radius: 3px;
+      font-size: 0.92em;
+      font-family: 'SF Mono', Consolas, monospace;
+    }
+    table.grid td.cell-rich .cell-rich-wrap pre {
+      background: rgba(0,0,0,0.35);
+      padding: 4px 6px;
+      border-radius: 4px;
+      overflow: auto;
+      margin: 0.25em 0;
+      font-size: 0.9em;
+    }
+    table.grid td.cell-rich .cell-rich-wrap a { color: var(--accent); text-decoration: underline; }
+    table.grid td.cell-rich .cell-rich-wrap strong { font-weight: 700; }
+    table.grid td.cell-rich .cell-rich-wrap em { font-style: italic; }
+    table.grid td.cell-rich .cell-rich-wrap blockquote {
+      border-left: 3px solid var(--border);
+      margin: 0.25em 0;
+      padding-left: 8px;
+      color: var(--text-muted);
+    }
+    table.grid td.cell-rich .cell-rich-wrap table {
+      border-collapse: collapse;
+      font-size: 0.9em;
+      margin: 0.2em 0;
+    }
+    table.grid td.cell-rich .cell-rich-wrap th,
+    table.grid td.cell-rich .cell-rich-wrap td {
+      border: 1px solid var(--border);
+      padding: 2px 5px;
+    }
+    table.grid td.cell-rich input.cell {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      z-index: 1;
+      cursor: pointer;
+    }
+    table.grid td.cell-rich.editing input.cell,
+    table.grid td.cell-rich input.cell:focus {
+      opacity: 1;
+      background: #1e2a3d;
+      z-index: 2;
+    }
+    table.grid td.cell-rich.editing .cell-rich-wrap,
+    table.grid td.cell-rich:focus-within .cell-rich-wrap {
+      opacity: 0.12;
+      pointer-events: none;
+    }
     /* Image cells: show thumbnail from URL; edit still uses the text input */
     table.grid td.cell-image {
       padding: 0;
@@ -838,8 +925,11 @@
           <p>Full SQLite database + spreadsheet formulas — <strong>100% client-side</strong>. No server, no account, no telemetry. Data never leaves this browser.<br>
             <code style="color:var(--formula)">=SUM(A1:A10)</code> ·
             <code style="color:var(--script)">script=cell('A1')*2</code> ·
-            <code style="color:var(--sql)">sql=SELECT COUNT(*) FROM t</code></p>
-          <p class="hint">Built for privacy-sensitive and regulated environments: agency analysis, FOIA prep, inventory, budgets, and offline field work. Use the <strong>AI Console</strong> at the bottom (your API key) to control tables and SQL in natural language. <strong>Chart</strong> visualizes results; paste image URLs into cells for thumbnails. Scripts are disabled by default.</p>
+            <code style="color:var(--sql)">sql=SELECT COUNT(*) FROM t</code> ·
+            <code style="color:#f472b6">md=**bold**</code> ·
+            <code style="color:#fb923c">html=&lt;b&gt;…&lt;/b&gt;</code> ·
+            <code style="color:#a3e635">css=color:red</code></p>
+          <p class="hint">Built for privacy-sensitive and regulated environments: agency analysis, FOIA prep, inventory, budgets, and offline field work. Use the <strong>AI Console</strong> at the bottom (your API key) to control tables and SQL in natural language. <strong>Chart</strong> visualizes results; paste image URLs into cells for thumbnails. Rich cells: <code>md=</code> Markdown, <code>html=</code> sanitized HTML, <code>css=</code> safe styles. Scripts are disabled by default.</p>
           <div class="demo-btns">
             <button class="btn primary" id="btnEmptyNewTable">Create table</button>
             <button class="btn" id="btnEmptyOpen">Import SQLite</button>
@@ -853,7 +943,7 @@
         </div>
       </div>
       <div class="help-hint" id="helpHint" style="display:none" title="Click for full formula help">
-        ƒx Help — =A1+B1 · script=cell('A1')*2 · sql=SELECT SUM(salary) FROM employees · click for full reference
+        ƒx Help — =A1+B1 · script=… · sql=… · md=**bold** · html=&lt;b&gt;… · css=color:red · click for full reference
       </div>
       <div class="sql-panel" id="sqlPanel">
         <div class="sql-header" id="sqlToggle">
@@ -1116,6 +1206,165 @@
     }
     function isImageUrl(v) {
       return !!extractImageUrl(v);
+    }
+
+    // ── Rich cells: md= Markdown, html= sanitized HTML, css= cell styles ──
+    // Security: no scripts, no event handlers, no external stylesheets.
+    // css= only allows a whitelist of safe CSS properties applied to the td.
+    function isMd(v) {
+      return typeof v === 'string' && /^\s*md\s*=/i.test(v);
+    }
+    function isHtml(v) {
+      return typeof v === 'string' && /^\s*html\s*=/i.test(v);
+    }
+    function isCss(v) {
+      return typeof v === 'string' && /^\s*css\s*=/i.test(v);
+    }
+    function isRich(v) {
+      return isMd(v) || isHtml(v) || isCss(v);
+    }
+    function extractRichBody(v) {
+      if (v === null || v === undefined) return { kind: null, body: '' };
+      const s = String(v);
+      const m = s.match(/^\s*(md|html|css)\s*=([\s\S]*)$/i);
+      if (!m) return { kind: null, body: s };
+      return { kind: m[1].toLowerCase(), body: m[2] };
+    }
+
+    // Minimal safe Markdown → HTML (no external library, offline-safe)
+    function markdownToHtml(src) {
+      let s = String(src ?? '');
+      // Escape first, then selectively re-introduce safe markup
+      s = escapeHtml(s);
+      // Code blocks ```
+      s = s.replace(/```([\s\S]*?)```/g, (_, code) => '<pre><code>' + code.trim() + '</code></pre>');
+      // Inline code
+      s = s.replace(/`([^`\n]+)`/g, '<code>$1</code>');
+      // Headings
+      s = s.replace(/^######\s+(.+)$/gm, '<h4>$1</h4>');
+      s = s.replace(/^#####\s+(.+)$/gm, '<h4>$1</h4>');
+      s = s.replace(/^####\s+(.+)$/gm, '<h4>$1</h4>');
+      s = s.replace(/^###\s+(.+)$/gm, '<h3>$1</h3>');
+      s = s.replace(/^##\s+(.+)$/gm, '<h2>$1</h2>');
+      s = s.replace(/^#\s+(.+)$/gm, '<h1>$1</h1>');
+      // Bold / italic
+      s = s.replace(/\*\*\*([^*]+)\*\*\*/g, '<strong><em>$1</em></strong>');
+      s = s.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      s = s.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      s = s.replace(/___([^_]+)___/g, '<strong><em>$1</em></strong>');
+      s = s.replace(/__([^_]+)__/g, '<strong>$1</strong>');
+      s = s.replace(/_([^_]+)_/g, '<em>$1</em>');
+      // Links [text](url) — only http(s)
+      s = s.replace(/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/gi, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+      // Blockquotes
+      s = s.replace(/^&gt;\s?(.+)$/gm, '<blockquote>$1</blockquote>');
+      // Unordered list items
+      s = s.replace(/^[-*+]\s+(.+)$/gm, '<li>$1</li>');
+      // Ordered list items
+      s = s.replace(/^\d+\.\s+(.+)$/gm, '<li data-ol="1">$1</li>');
+      // Wrap consecutive <li> into ul/ol
+      s = s.replace(/(?:<li>(?!.*?data-ol)[\s\S]*?<\/li>\s*)+/g, (block) => '<ul>' + block + '</ul>');
+      s = s.replace(/(?:<li data-ol="1">[\s\S]*?<\/li>\s*)+/g, (block) => {
+        return '<ol>' + block.replace(/ data-ol="1"/g, '') + '</ol>';
+      });
+      // Paragraphs / line breaks
+      s = s.replace(/\n{2,}/g, '</p><p>');
+      s = s.replace(/\n/g, '<br>');
+      if (!/^<(h[1-4]|ul|ol|pre|blockquote|p)/i.test(s.trim())) {
+        s = '<p>' + s + '</p>';
+      }
+      return s;
+    }
+
+    // Sanitize HTML: strip scripts, event handlers, dangerous tags/attrs
+    function sanitizeHtml(src) {
+      const allowed = new Set([
+        'P','BR','SPAN','DIV','STRONG','B','EM','I','U','S','CODE','PRE',
+        'H1','H2','H3','H4','H5','H6','UL','OL','LI','BLOCKQUOTE','A',
+        'TABLE','THEAD','TBODY','TR','TH','TD','HR','SUB','SUP','MARK','SMALL'
+      ]);
+      const allowedAttrs = {
+        A: new Set(['href', 'title', 'target', 'rel']),
+        TD: new Set(['colspan', 'rowspan']),
+        TH: new Set(['colspan', 'rowspan']),
+        '*': new Set(['class', 'title'])
+      };
+      const tmp = document.createElement('div');
+      tmp.innerHTML = String(src ?? '');
+      const walk = (node) => {
+        const children = Array.from(node.childNodes);
+        for (const child of children) {
+          if (child.nodeType === 1) {
+            const tag = child.tagName.toUpperCase();
+            if (!allowed.has(tag) || tag === 'SCRIPT' || tag === 'STYLE' || tag === 'IFRAME' || tag === 'OBJECT' || tag === 'EMBED') {
+              child.remove();
+              continue;
+            }
+            // Strip dangerous attributes
+            const attrs = Array.from(child.attributes);
+            for (const attr of attrs) {
+              const name = attr.name.toLowerCase();
+              if (name.startsWith('on') || name === 'style' || name === 'srcdoc') {
+                child.removeAttribute(attr.name);
+                continue;
+              }
+              const tagAllow = allowedAttrs[tag] || allowedAttrs['*'];
+              const starAllow = allowedAttrs['*'];
+              if (!tagAllow.has(name) && !starAllow.has(name)) {
+                child.removeAttribute(attr.name);
+                continue;
+              }
+              if (name === 'href') {
+                const href = (attr.value || '').trim();
+                if (!/^https?:\/\//i.test(href) && !href.startsWith('#') && !href.startsWith('mailto:')) {
+                  child.removeAttribute(attr.name);
+                } else {
+                  child.setAttribute('target', '_blank');
+                  child.setAttribute('rel', 'noopener noreferrer');
+                }
+              }
+            }
+            walk(child);
+          } else if (child.nodeType === 8) {
+            // comments
+            child.remove();
+          }
+        }
+      };
+      walk(tmp);
+      return tmp.innerHTML;
+    }
+
+    // css= whitelist of safe CSS properties for the cell (td)
+    const CSS_SAFE_PROPS = new Set([
+      'color', 'background', 'background-color', 'font-weight', 'font-style',
+      'font-size', 'text-align', 'text-decoration', 'opacity', 'border',
+      'border-radius', 'border-color', 'border-width', 'border-style',
+      'padding', 'letter-spacing', 'line-height', 'white-space'
+    ]);
+    function parseSafeCss(src) {
+      const out = {};
+      String(src ?? '').split(';').forEach(part => {
+        const idx = part.indexOf(':');
+        if (idx < 0) return;
+        const prop = part.slice(0, idx).trim().toLowerCase();
+        let val = part.slice(idx + 1).trim();
+        if (!CSS_SAFE_PROPS.has(prop)) return;
+        // Block urls, expressions, javascript
+        if (/url\s*\(|expression\s*\(|javascript:|@import/i.test(val)) return;
+        // Basic length/color/keyword sanity
+        if (val.length > 80) return;
+        out[prop] = val;
+      });
+      return out;
+    }
+
+    function renderRichContent(raw) {
+      const { kind, body } = extractRichBody(raw);
+      if (kind === 'md') return { html: markdownToHtml(body), css: null, kind };
+      if (kind === 'html') return { html: sanitizeHtml(body), css: null, kind };
+      if (kind === 'css') return { html: '', css: parseSafeCss(body), kind };
+      return null;
     }
 
     function parseNumber(v) {
@@ -3055,7 +3304,7 @@
       html += '</tr></thead><tbody>';
 
       if (!rows.length) {
-        html += `<tr><td class="row-num"></td><td colspan="${colNames.length}" style="padding:12px;color:var(--text-muted);text-align:center">Empty table — click + Row. Formulas: =SUM(A1:A5), =OtherTable!B2, =SUM(orders!C:C)</td></tr>`;
+        html += `<tr><td class="row-num"></td><td colspan="${colNames.length}" style="padding:12px;color:var(--text-muted);text-align:center">Empty table — click + Row. Formulas: =SUM(A1:A5) · md=**bold** · html=&lt;b&gt;… · css=color:red</td></tr>`;
       } else {
         rows.forEach((row, ri) => {
           const rh = getRowHeight(row.rowid);
@@ -3101,12 +3350,31 @@
             // Prefer computed display value for image detection (supports formula/sql that return a URL)
             const imgSrc = (!isErr && !isS) ? extractImageUrl(display) : null;
             const imgCls = imgSrc ? ' cell-image' : '';
-            const inputVal = imgSrc ? escapeHtml(String(raw ?? display ?? '')) : escapeHtml(display);
-            const titleAttr = isComputed(raw)
-              ? escapeHtml(raw)
+            // Rich content: md= / html= / css= (also check computed result of formula/script/sql)
+            const richSource = isRich(raw) ? raw : ((!isErr && isRich(display)) ? display : null);
+            const rich = richSource ? renderRichContent(richSource) : null;
+            const richCls = rich ? ' cell-rich' : '';
+            const richKindCls = rich ? (rich.kind === 'md' ? ' is-md' : rich.kind === 'html' ? ' is-html' : rich.kind === 'css' ? ' is-css' : '') : '';
+            // Merge css= styles into the td
+            let finalMergedTdStyle = mergedTdStyle;
+            if (rich && rich.css) {
+              const cssParts = Object.entries(rich.css).map(([k, v]) => k + ':' + v);
+              if (cssParts.length) {
+                if (finalMergedTdStyle.includes('style="')) {
+                  finalMergedTdStyle = finalMergedTdStyle.replace(/style="/, 'style="' + escapeHtml(cssParts.join(';')) + ';');
+                } else {
+                  finalMergedTdStyle = ` style="${sizeStyle};${escapeHtml(cssParts.join(';'))}"`;
+                }
+              }
+            }
+            const inputVal = (imgSrc || rich)
+              ? escapeHtml(String(raw ?? display ?? ''))
+              : escapeHtml(display);
+            const titleAttr = isComputed(raw) || isRich(raw)
+              ? escapeHtml(String(raw ?? ''))
               : (imgSrc ? escapeHtml(imgSrc) : '');
             if (imgSrc) {
-              html += `<td class="${(lifeCls + imgCls).trim()}" data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${mergedTdStyle}>
+              html += `<td class="${(lifeCls + imgCls).trim()}" data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${finalMergedTdStyle}>
                 <div class="cell-img-wrap">
                   <img class="cell-img" src="${escapeHtml(imgSrc)}" alt="" loading="lazy" referrerpolicy="no-referrer"
                        onerror="this.classList.add('broken')">
@@ -3119,9 +3387,19 @@
                          title="${titleAttr}">
                 </div>
               </td>`;
+            } else if (rich && (rich.kind === 'md' || rich.kind === 'html')) {
+              html += `<td class="${(lifeCls + richCls).trim()}" data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${finalMergedTdStyle}>
+                <div class="cell-rich-wrap">${rich.html}</div>
+                <input class="cell ${cls}${extraCls}${richKindCls}" value="${inputVal}"${styleAttr}
+                       data-raw="${escapeHtml(raw ?? '')}"
+                       data-rowid="${row.rowid}" data-col="${escapeHtml(colNames[ci])}"
+                       data-colidx="${ci}" data-rowidx="${ri}" data-ref="${ref}"
+                       data-rich="1"
+                       title="${titleAttr}">
+              </td>`;
             } else {
-              html += `<td class="${lifeCls.trim()}" data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${mergedTdStyle}>
-                <input class="cell ${cls}${extraCls}" value="${escapeHtml(display)}"${styleAttr}
+              html += `<td class="${(lifeCls + (rich && rich.kind === 'css' ? richCls : '')).trim()}" data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${finalMergedTdStyle}>
+                <input class="cell ${cls}${extraCls}${richKindCls}" value="${escapeHtml(rich && rich.kind === 'css' ? String(raw ?? '') : display)}"${styleAttr}
                        data-raw="${escapeHtml(raw ?? '')}"
                        data-rowid="${row.rowid}" data-col="${escapeHtml(colNames[ci])}"
                        data-colidx="${ci}" data-rowidx="${ri}" data-ref="${ref}"
@@ -3166,20 +3444,24 @@
           document.getElementById('fxRef').textContent = inp.dataset.ref;
           const raw = inp.dataset.raw;
           document.getElementById('fxInput').value = raw;
-          document.getElementById('fxInput').classList.toggle('formula', isComputed(raw));
+          document.getElementById('fxInput').classList.toggle('formula', isComputed(raw) || isRich(raw));
         });
 
-        // On focus show raw formula/script for editing; image cells show the URL text
+        // On focus show raw formula/script/rich for editing; image & rich cells overlay the input
         inp.addEventListener('focus', () => {
           const td = inp.closest('td');
-          if (td && td.classList.contains('cell-image')) td.classList.add('editing');
-          if (isComputed(inp.dataset.raw)) {
+          if (td && (td.classList.contains('cell-image') || td.classList.contains('cell-rich'))) {
+            td.classList.add('editing');
+          }
+          if (isComputed(inp.dataset.raw) || isRich(inp.dataset.raw)) {
             inp.value = inp.dataset.raw;
             if (isFormula(inp.dataset.raw)) inp.classList.add('is-formula');
             if (isScript(inp.dataset.raw)) inp.classList.add('is-script');
             if (isSql(inp.dataset.raw)) inp.classList.add('is-sql');
-          } else if (inp.dataset.img) {
-            // Show stored URL / img= value for editing
+            if (isMd(inp.dataset.raw)) inp.classList.add('is-md');
+            if (isHtml(inp.dataset.raw)) inp.classList.add('is-html');
+            if (isCss(inp.dataset.raw)) inp.classList.add('is-css');
+          } else if (inp.dataset.img || inp.dataset.rich) {
             inp.value = inp.dataset.raw || '';
           }
         });
@@ -3202,7 +3484,9 @@
             );
             next?.focus();
           } else if (e.key === 'Escape') {
-            inp.value = isComputed(inp.dataset.raw) ? inp.dataset.raw : (inp.dataset.raw || '');
+            inp.value = (isComputed(inp.dataset.raw) || isRich(inp.dataset.raw))
+              ? inp.dataset.raw
+              : (inp.dataset.raw || '');
             inp.blur();
           }
         });
@@ -3239,8 +3523,8 @@
       const col = inp.dataset.col;
       try {
         let store = raw;
-        // Keep formulas/scripts as text; otherwise try number
-        if (!isComputed(raw) && raw !== '' && !isNaN(raw) && String(raw).trim() !== '') {
+        // Keep formulas/scripts/rich as text; otherwise try number
+        if (!isComputed(raw) && !isRich(raw) && raw !== '' && !isNaN(raw) && String(raw).trim() !== '') {
           store = Number(raw);
         } else if (raw === '') {
           store = null;
@@ -3274,7 +3558,7 @@
       const raw = document.getElementById('fxInput').value;
       try {
         let store = raw;
-        if (!isComputed(raw) && raw !== '' && !isNaN(raw) && String(raw).trim() !== '') {
+        if (!isComputed(raw) && !isRich(raw) && raw !== '' && !isNaN(raw) && String(raw).trim() !== '') {
           store = Number(raw);
         } else if (raw === '') store = null;
         db.run(`UPDATE ${quoteIdent(currentTable)} SET ${quoteIdent(selectedCol)} = ? WHERE rowid = ?`, [store, selectedRow]);
@@ -4019,8 +4303,17 @@
                 <li><code>data:image/png;base64,…</code></li>
               </ul>
               <p>Click the cell to edit the URL. Images load in the browser only (CSP allows <code>https:</code> and <code>data:</code>); remote hosts must allow hotlinking. For air-gapped use, prefer <code>data:</code> URIs or local self-hosted URLs.</p>
+              <h4>Rich cells (Markdown / HTML / CSS)</h4>
+              <p>Prefix cell content to render rich formatting. Click the cell to edit the raw source.</p>
+              <table>
+                <tr><th>Prefix</th><th>Example</th><th>Behavior</th></tr>
+                <tr><td><code style="color:#f472b6">md=</code></td><td><code style="color:#f472b6">md=**Hello** _world_</code></td><td>Safe Markdown → HTML (bold, italic, links, lists, code, headings)</td></tr>
+                <tr><td><code style="color:#fb923c">html=</code></td><td><code style="color:#fb923c">html=&lt;b&gt;Hi&lt;/b&gt; &lt;em&gt;there&lt;/em&gt;</code></td><td>Sanitized HTML (scripts, event handlers, and dangerous tags stripped)</td></tr>
+                <tr><td><code style="color:#a3e635">css=</code></td><td><code style="color:#a3e635">css=color:#22c55e; font-weight:700</code></td><td>Safe CSS properties applied to the cell (whitelist only; no url()/expression)</td></tr>
+              </table>
+              <p>Allowed CSS properties: color, background, background-color, font-weight, font-style, font-size, text-align, text-decoration, opacity, border*, padding, letter-spacing, line-height, white-space.</p>
               <h4>Where to type</h4>
-              <p>Click a cell (or the ƒx bar), type <code>=A1+B1</code>, <code class="script">script=cell('A1')*2</code>, or <code style="color:#38bdf8">sql=SELECT COUNT(*) FROM employees</code>, press Enter.</p>
+              <p>Click a cell (or the ƒx bar), type <code>=A1+B1</code>, <code class="script">script=cell('A1')*2</code>, <code style="color:#38bdf8">sql=SELECT COUNT(*) FROM employees</code>, <code style="color:#f472b6">md=**bold**</code>, or <code style="color:#fb923c">html=&lt;b&gt;…</code>, press Enter.</p>
             </div>
 
             <div class="help-section" data-section="refs">
