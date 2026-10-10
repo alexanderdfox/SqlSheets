@@ -50,8 +50,16 @@ Everything runs in the browser. No data leaves the machine.
 - SQL Console for arbitrary queries
 - Recalculate formulas on demand
 - **Charts** from query results or the current table (bar, line, pie, doughnut, scatter); download as PNG
-- Works entirely offline once loaded (Chart.js loads once from CDN on first chart use, or self-host for air-gap)
+- **Image cells**: paste an `https://…` image URL (or `img=…` / `data:image/…`) to show a thumbnail in the grid
+- **AI Console** (bottom): multi-provider — OpenAI, Anthropic, Google Gemini, xAI Grok, OpenRouter, or custom OpenAI-compatible API. Keys stay in the browser. The model uses tools to run SQL, manage tables, and edit cells.
+- Works entirely offline once loaded (Chart.js / AI APIs need network when used)
 - Content-Security-Policy enforced; scripts sandboxed and default-deny
+
+### AI tools (what the model can do)
+
+`list_tables`, `describe_table`, `get_schema_summary`, `get_table_preview`, `run_sql`, `select_table`, `create_table`, `drop_table`, `set_cell`, `add_rows`
+
+Privacy: API requests go from your browser to the provider you choose. Table data may be sent as tool results to the model when the agent inspects or queries the database. Do not use cloud AI with classified data unless policy allows.
 
 ---
 

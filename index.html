@@ -36,6 +36,7 @@
       --header-h: 44px;
       --sidebar-w: 200px;
       --sql-h: 168px;
+      --ai-h: 220px;
       --fx-h: 34px;
       --live: #22c55e;
       --dead: #1a2332;
@@ -342,6 +343,60 @@
     table.grid input.cell.is-script { color: #34d399; }
     table.grid input.cell.is-sql { color: #38bdf8; }
     table.grid input.cell.is-error { color: var(--danger); }
+    /* Image cells: show thumbnail from URL; edit still uses the text input */
+    table.grid td.cell-image {
+      padding: 0;
+      vertical-align: middle;
+      overflow: hidden;
+    }
+    table.grid td.cell-image .cell-img-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+    table.grid td.cell-image img.cell-img {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      display: block;
+      pointer-events: none;
+      background: transparent;
+    }
+    table.grid td.cell-image input.cell {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      z-index: 1;
+      cursor: pointer;
+    }
+    table.grid td.cell-image.editing input.cell,
+    table.grid td.cell-image input.cell:focus {
+      opacity: 1;
+      background: #1e2a3d;
+      z-index: 2;
+    }
+    table.grid td.cell-image.editing img.cell-img,
+    table.grid td.cell-image:focus-within img.cell-img {
+      opacity: 0.15;
+    }
+    table.grid td.cell-image img.cell-img.broken {
+      display: none;
+    }
+    table.grid td.cell-image .cell-img-fallback {
+      display: none;
+      font-size: 10px;
+      color: var(--text-muted);
+      padding: 2px 4px;
+      pointer-events: none;
+    }
+    table.grid td.cell-image img.cell-img.broken + .cell-img-fallback {
+      display: block;
+    }
     table.grid .col-header-inner {
       display: flex;
       flex-direction: column;
@@ -437,6 +492,78 @@
       color: var(--text-muted);
     }
     .sql-results tr:hover td { background: var(--surface2); }
+    /* AI console */
+    .ai-panel {
+      height: var(--ai-h);
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      flex-direction: column;
+      flex-shrink: 0;
+    }
+    .ai-panel.collapsed { height: 36px; }
+    .ai-header {
+      height: 36px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      gap: 8px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      user-select: none;
+      flex-shrink: 0;
+    }
+    .ai-header .title { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+    .ai-header .ai-badge {
+      font-size: 10px; padding: 2px 6px; border-radius: 4px;
+      background: rgba(59,130,246,.15); color: var(--accent); border: 1px solid rgba(59,130,246,.35);
+    }
+    .ai-body { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+    .ai-settings {
+      width: 200px; flex-shrink: 0; border-right: 1px solid var(--border);
+      padding: 8px; overflow-y: auto; font-size: 11px; display: flex; flex-direction: column; gap: 6px;
+      background: var(--surface2);
+    }
+    .ai-settings label { color: var(--text-muted); display: flex; flex-direction: column; gap: 2px; }
+    .ai-settings select, .ai-settings input[type=password], .ai-settings input[type=text] {
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 4px; padding: 4px 6px; font-size: 11px; width: 100%;
+    }
+    .ai-settings .hint { font-size: 10px; color: var(--text-muted); line-height: 1.35; opacity: .9; }
+    .ai-chat {
+      flex: 1; display: flex; flex-direction: column; min-width: 0; min-height: 0;
+    }
+    .ai-messages {
+      flex: 1; overflow-y: auto; padding: 8px 10px; font-size: 12px; line-height: 1.45;
+    }
+    .ai-msg { margin-bottom: 8px; max-width: 95%; }
+    .ai-msg.user { color: var(--text); }
+    .ai-msg.assistant { color: #c7d2fe; }
+    .ai-msg.system { color: var(--text-muted); font-size: 11px; }
+    .ai-msg.tool {
+      color: var(--success); font-family: 'SF Mono', Consolas, monospace; font-size: 11px;
+      background: rgba(34,197,94,.06); border: 1px solid rgba(34,197,94,.2);
+      border-radius: 6px; padding: 6px 8px; white-space: pre-wrap; word-break: break-word;
+    }
+    .ai-msg .role {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--text-muted); margin-bottom: 2px;
+    }
+    .ai-msg.assistant .role { color: #818cf8; }
+    .ai-msg.user .role { color: var(--accent); }
+    .ai-input-row {
+      display: flex; gap: 6px; padding: 6px 8px; border-top: 1px solid var(--border);
+      background: var(--surface2); flex-shrink: 0; align-items: flex-end;
+    }
+    .ai-input-row textarea {
+      flex: 1; min-height: 36px; max-height: 90px; resize: vertical;
+      background: var(--bg); border: 1px solid var(--border); color: var(--text);
+      border-radius: 6px; padding: 6px 8px; font-size: 12px; font-family: inherit;
+      outline: none;
+    }
+    .ai-input-row textarea:focus { border-color: var(--accent); }
+    .ai-input-row .btn { flex-shrink: 0; }
+    .ai-busy { opacity: .6; pointer-events: none; }
     /* Chart modal */
     .chart-modal-backdrop {
       position: fixed; inset: 0; background: rgba(0,0,0,.55); z-index: 9000;
@@ -712,7 +839,7 @@
             <code style="color:var(--formula)">=SUM(A1:A10)</code> ·
             <code style="color:var(--script)">script=cell('A1')*2</code> ·
             <code style="color:var(--sql)">sql=SELECT COUNT(*) FROM t</code></p>
-          <p class="hint">Built for privacy-sensitive and regulated environments: agency analysis, FOIA prep, inventory, budgets, and offline field work. Run SQL, then use <strong>Chart</strong> to visualize results. Scripts are disabled by default.</p>
+          <p class="hint">Built for privacy-sensitive and regulated environments: agency analysis, FOIA prep, inventory, budgets, and offline field work. Use the <strong>AI Console</strong> at the bottom (your API key) to control tables and SQL in natural language. <strong>Chart</strong> visualizes results; paste image URLs into cells for thumbnails. Scripts are disabled by default.</p>
           <div class="demo-btns">
             <button class="btn primary" id="btnEmptyNewTable">Create table</button>
             <button class="btn" id="btnEmptyOpen">Import SQLite</button>
@@ -747,6 +874,53 @@
           </div>
           <div class="sql-results" id="sqlResults">
             <div class="msg">Results appear here. Run any SELECT / INSERT / UPDATE / CREATE / …</div>
+          </div>
+        </div>
+      </div>
+      <div class="ai-panel" id="aiPanel">
+        <div class="ai-header" id="aiToggle">
+          <span class="title">AI Console</span>
+          <span class="ai-badge" id="aiProviderBadge">Configure</span>
+          <span style="font-size:11px;color:var(--text-muted)">(tools control tables, SQL, cells)</span>
+          <div class="spacer"></div>
+          <button type="button" class="btn" id="btnAiClear" style="padding:2px 8px;font-size:11px" title="Clear chat">Clear</button>
+          <span id="aiToggleIcon">▼</span>
+        </div>
+        <div class="ai-body" id="aiBody">
+          <div class="ai-settings" id="aiSettings">
+            <label>Provider
+              <select id="aiProvider">
+                <option value="openai">OpenAI</option>
+                <option value="anthropic">Anthropic</option>
+                <option value="google">Google Gemini</option>
+                <option value="xai">xAI (Grok)</option>
+                <option value="openrouter">OpenRouter</option>
+                <option value="custom">Custom (OpenAI-compatible)</option>
+              </select>
+            </label>
+            <label>Model
+              <input type="text" id="aiModel" placeholder="gpt-4o-mini" autocomplete="off">
+            </label>
+            <label>API key
+              <input type="password" id="aiApiKey" placeholder="sk-…" autocomplete="off">
+            </label>
+            <label id="aiBaseUrlWrap" style="display:none">Base URL
+              <input type="text" id="aiBaseUrl" placeholder="https://api.example.com/v1" autocomplete="off">
+            </label>
+            <label style="flex-direction:row;align-items:center;gap:6px;cursor:pointer">
+              <input type="checkbox" id="aiRememberKey" style="width:auto"> Remember key (local only)
+            </label>
+            <p class="hint">Keys stay in this browser (localStorage). Requests go from your browser to the provider. AI can run SQL, edit cells, and manage tables via tools.</p>
+          </div>
+          <div class="ai-chat">
+            <div class="ai-messages" id="aiMessages">
+              <div class="ai-msg system"><div class="role">System</div>Set provider + API key, then ask in natural language. Examples: “list tables”, “create a contacts table”, “SELECT count from …”, “put https://…/img.png in A1”.</div>
+            </div>
+            <div class="ai-input-row">
+              <textarea id="aiInput" rows="2" placeholder="Ask the AI to control SQLSheet… (Enter to send, Shift+Enter newline)"></textarea>
+              <button type="button" class="btn primary" id="btnAiSend">Send</button>
+              <button type="button" class="btn danger" id="btnAiStop" style="display:none">Stop</button>
+            </div>
           </div>
         </div>
       </div>
@@ -921,6 +1095,27 @@
 
     function isComputed(v) {
       return isFormula(v) || isScript(v) || isSql(v);
+    }
+
+    // Image cells: plain http(s)/data image URLs, or explicit img=URL / image=URL
+    function extractImageUrl(v) {
+      if (v === null || v === undefined) return null;
+      const s = String(v).trim();
+      if (!s) return null;
+      const explicit = s.match(/^\s*(?:img|image)\s*=\s*(.+)$/i);
+      const candidate = explicit ? explicit[1].trim() : s;
+      if (/^data:image\/[a-z0-9+.-]+;base64,/i.test(candidate)) return candidate;
+      if (/^https?:\/\//i.test(candidate)) {
+        // Accept common image extensions, query strings, and known image CDNs without extension
+        if (/\.(png|jpe?g|gif|webp|svg|bmp|ico|avif)(\?|#|$)/i.test(candidate)) return candidate;
+        if (explicit) return candidate; // img=https://... always treat as image
+        // Heuristic: path looks like an image host/path even without extension
+        if (/(images?|media|static|cdn|imgur|unsplash|picsum|placeholder|avatars?)\//i.test(candidate)) return candidate;
+      }
+      return null;
+    }
+    function isImageUrl(v) {
+      return !!extractImageUrl(v);
     }
 
     function parseNumber(v) {
@@ -2903,13 +3098,36 @@
             const mergedTdStyle = tdStyle
               ? tdStyle.replace('style="', `style="${sizeStyle};`)
               : ` style="${sizeStyle}"`;
-            html += `<td class="${lifeCls.trim()}" data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${mergedTdStyle}>
-              <input class="cell ${cls}${extraCls}" value="${escapeHtml(display)}"${styleAttr}
-                     data-raw="${escapeHtml(raw ?? '')}"
-                     data-rowid="${row.rowid}" data-col="${escapeHtml(colNames[ci])}"
-                     data-colidx="${ci}" data-rowidx="${ri}" data-ref="${ref}"
-                     title="${isComputed(raw) ? escapeHtml(raw) : ''}">
-            </td>`;
+            // Prefer computed display value for image detection (supports formula/sql that return a URL)
+            const imgSrc = (!isErr && !isS) ? extractImageUrl(display) : null;
+            const imgCls = imgSrc ? ' cell-image' : '';
+            const inputVal = imgSrc ? escapeHtml(String(raw ?? display ?? '')) : escapeHtml(display);
+            const titleAttr = isComputed(raw)
+              ? escapeHtml(raw)
+              : (imgSrc ? escapeHtml(imgSrc) : '');
+            if (imgSrc) {
+              html += `<td class="${(lifeCls + imgCls).trim()}" data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${mergedTdStyle}>
+                <div class="cell-img-wrap">
+                  <img class="cell-img" src="${escapeHtml(imgSrc)}" alt="" loading="lazy" referrerpolicy="no-referrer"
+                       onerror="this.classList.add('broken')">
+                  <span class="cell-img-fallback">image</span>
+                  <input class="cell ${cls}${extraCls}" value="${inputVal}"${styleAttr}
+                         data-raw="${escapeHtml(raw ?? '')}"
+                         data-rowid="${row.rowid}" data-col="${escapeHtml(colNames[ci])}"
+                         data-colidx="${ci}" data-rowidx="${ri}" data-ref="${ref}"
+                         data-img="1"
+                         title="${titleAttr}">
+                </div>
+              </td>`;
+            } else {
+              html += `<td class="${lifeCls.trim()}" data-col="${ci}" data-rowid="${row.rowid}" data-ref="${ref}"${mergedTdStyle}>
+                <input class="cell ${cls}${extraCls}" value="${escapeHtml(display)}"${styleAttr}
+                       data-raw="${escapeHtml(raw ?? '')}"
+                       data-rowid="${row.rowid}" data-col="${escapeHtml(colNames[ci])}"
+                       data-colidx="${ci}" data-rowidx="${ri}" data-ref="${ref}"
+                       title="${titleAttr}">
+              </td>`;
+            }
           }
           html += '</tr>';
         });
@@ -2951,14 +3169,23 @@
           document.getElementById('fxInput').classList.toggle('formula', isComputed(raw));
         });
 
-        // On focus show raw formula/script for editing
+        // On focus show raw formula/script for editing; image cells show the URL text
         inp.addEventListener('focus', () => {
+          const td = inp.closest('td');
+          if (td && td.classList.contains('cell-image')) td.classList.add('editing');
           if (isComputed(inp.dataset.raw)) {
             inp.value = inp.dataset.raw;
             if (isFormula(inp.dataset.raw)) inp.classList.add('is-formula');
             if (isScript(inp.dataset.raw)) inp.classList.add('is-script');
             if (isSql(inp.dataset.raw)) inp.classList.add('is-sql');
+          } else if (inp.dataset.img) {
+            // Show stored URL / img= value for editing
+            inp.value = inp.dataset.raw || '';
           }
+        });
+        inp.addEventListener('blur', () => {
+          const td = inp.closest('td');
+          if (td) td.classList.remove('editing');
         });
 
         inp.addEventListener('change', () => {
@@ -3784,6 +4011,14 @@
               </table>
               <p>Plain values (numbers/text) are stored as-is. Computed cells are stored as text and recalculated when the grid refreshes.</p>
               <p>Use the <strong>ƒx</strong> bar to edit the raw content. <strong>ƒx Recalc</strong> forces a full recalculation.</p>
+              <h4>Image cells</h4>
+              <p>Paste an image URL into a cell to show a thumbnail. Supported:</p>
+              <ul style="text-align:left;margin:6px 0 6px 18px;font-size:12px;line-height:1.5">
+                <li><code>https://…/photo.png</code> (png, jpg, gif, webp, svg, …)</li>
+                <li><code>img=https://example.com/any-path</code> (forces image even without extension)</li>
+                <li><code>data:image/png;base64,…</code></li>
+              </ul>
+              <p>Click the cell to edit the URL. Images load in the browser only (CSP allows <code>https:</code> and <code>data:</code>); remote hosts must allow hotlinking. For air-gapped use, prefer <code>data:</code> URIs or local self-hosted URLs.</p>
               <h4>Where to type</h4>
               <p>Click a cell (or the ƒx bar), type <code>=A1+B1</code>, <code class="script">script=cell('A1')*2</code>, or <code style="color:#38bdf8">sql=SELECT COUNT(*) FROM employees</code>, press Enter.</p>
             </div>
@@ -4133,6 +4368,677 @@
       document.getElementById('sqlBody').style.display = sqlCollapsed ? 'none' : 'flex';
       document.getElementById('sqlToggleIcon').textContent = sqlCollapsed ? '▲' : '▼';
     };
+
+    // ── AI Console (multi-provider + tools with full app control) ───────────
+    const AI_LS_KEY = 'sqlsheets_ai_cfg_v1';
+    let aiCollapsed = false;
+    let aiChatHistory = []; // {role, content} for the model
+    let aiAbort = null;
+    let aiBusy = false;
+
+    const AI_PROVIDERS = {
+      openai: {
+        label: 'OpenAI',
+        defaultModel: 'gpt-4o-mini',
+        baseUrl: 'https://api.openai.com/v1',
+        kind: 'openai'
+      },
+      anthropic: {
+        label: 'Anthropic',
+        defaultModel: 'claude-sonnet-4-20250514',
+        baseUrl: 'https://api.anthropic.com/v1',
+        kind: 'anthropic'
+      },
+      google: {
+        label: 'Google Gemini',
+        defaultModel: 'gemini-2.0-flash',
+        baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+        kind: 'google'
+      },
+      xai: {
+        label: 'xAI',
+        defaultModel: 'grok-3-mini',
+        baseUrl: 'https://api.x.ai/v1',
+        kind: 'openai'
+      },
+      openrouter: {
+        label: 'OpenRouter',
+        defaultModel: 'openai/gpt-4o-mini',
+        baseUrl: 'https://openrouter.ai/api/v1',
+        kind: 'openai'
+      },
+      custom: {
+        label: 'Custom',
+        defaultModel: 'gpt-4o-mini',
+        baseUrl: '',
+        kind: 'openai'
+      }
+    };
+
+    const AI_TOOLS = [
+      {
+        name: 'list_tables',
+        description: 'List all user tables in the SQLite database with row counts.',
+        parameters: { type: 'object', properties: {}, additionalProperties: false }
+      },
+      {
+        name: 'describe_table',
+        description: 'Get column schema (name, type, pk, notnull) for a table.',
+        parameters: {
+          type: 'object',
+          properties: { table: { type: 'string', description: 'Table name' } },
+          required: ['table']
+        }
+      },
+      {
+        name: 'run_sql',
+        description: 'Execute arbitrary SQLite SQL (SELECT/INSERT/UPDATE/DELETE/CREATE/DROP/…). Returns rows for SELECT.',
+        parameters: {
+          type: 'object',
+          properties: { sql: { type: 'string', description: 'Full SQL statement(s)' } },
+          required: ['sql']
+        }
+      },
+      {
+        name: 'get_table_preview',
+        description: 'Return up to N rows from a table for inspection.',
+        parameters: {
+          type: 'object',
+          properties: {
+            table: { type: 'string' },
+            limit: { type: 'integer', description: 'Max rows (default 50, max 200)' }
+          },
+          required: ['table']
+        }
+      },
+      {
+        name: 'select_table',
+        description: 'Open a table in the spreadsheet grid UI.',
+        parameters: {
+          type: 'object',
+          properties: { table: { type: 'string' } },
+          required: ['table']
+        }
+      },
+      {
+        name: 'create_table',
+        description: 'Create a new table with named columns.',
+        parameters: {
+          type: 'object',
+          properties: {
+            name: { type: 'string' },
+            columns: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  name: { type: 'string' },
+                  type: { type: 'string', description: 'SQLite type e.g. TEXT, INTEGER, REAL' }
+                },
+                required: ['name']
+              }
+            }
+          },
+          required: ['name', 'columns']
+        }
+      },
+      {
+        name: 'drop_table',
+        description: 'Drop a table permanently.',
+        parameters: {
+          type: 'object',
+          properties: { table: { type: 'string' } },
+          required: ['table']
+        }
+      },
+      {
+        name: 'set_cell',
+        description: 'Set a cell by A1-style address on a table (or current table). Value may be plain text, number, formula (=…), sql=…, script=…, or image URL.',
+        parameters: {
+          type: 'object',
+          properties: {
+            table: { type: 'string', description: 'Optional; defaults to current table' },
+            cell: { type: 'string', description: 'A1 address e.g. B2' },
+            value: { type: 'string', description: 'New cell value' }
+          },
+          required: ['cell', 'value']
+        }
+      },
+      {
+        name: 'add_rows',
+        description: 'Insert empty rows into a table.',
+        parameters: {
+          type: 'object',
+          properties: {
+            table: { type: 'string' },
+            count: { type: 'integer', description: 'Number of rows (1-100)' }
+          },
+          required: ['table']
+        }
+      },
+      {
+        name: 'get_schema_summary',
+        description: 'Summarize entire database: tables, columns, row counts.',
+        parameters: { type: 'object', properties: {}, additionalProperties: false }
+      }
+    ];
+
+    const AI_SYSTEM = `You are the SQLSheet AI operator. SQLSheet is a browser-local SQLite database with a spreadsheet grid.
+You have tools that fully control the database and UI. Prefer tools over guessing.
+Rules:
+- Data never leaves the user's machine except your API calls.
+- Use run_sql for queries and mutations; use set_cell for spreadsheet-style edits (formulas, image URLs).
+- After schema changes, select_table so the user sees the grid.
+- Be concise. Confirm destructive actions only if the user was ambiguous.
+- Image URLs in cells render as thumbnails. Charts use the Chart button on query results.`;
+
+    function loadAiCfg() {
+      try {
+        return JSON.parse(localStorage.getItem(AI_LS_KEY) || '{}') || {};
+      } catch (_) { return {}; }
+    }
+    function saveAiCfg(partial) {
+      const cfg = Object.assign(loadAiCfg(), partial);
+      if (!cfg.rememberKey) delete cfg.apiKey;
+      localStorage.setItem(AI_LS_KEY, JSON.stringify(cfg));
+    }
+    function getAiSettingsFromUi() {
+      const provider = document.getElementById('aiProvider').value;
+      return {
+        provider,
+        model: document.getElementById('aiModel').value.trim() || AI_PROVIDERS[provider].defaultModel,
+        apiKey: document.getElementById('aiApiKey').value.trim(),
+        baseUrl: document.getElementById('aiBaseUrl').value.trim(),
+        rememberKey: document.getElementById('aiRememberKey').checked
+      };
+    }
+    function applyAiSettingsToUi() {
+      const cfg = loadAiCfg();
+      const prov = cfg.provider || 'openai';
+      document.getElementById('aiProvider').value = prov;
+      document.getElementById('aiModel').value = cfg.model || AI_PROVIDERS[prov]?.defaultModel || '';
+      document.getElementById('aiApiKey').value = cfg.apiKey || '';
+      document.getElementById('aiBaseUrl').value = cfg.baseUrl || '';
+      document.getElementById('aiRememberKey').checked = !!cfg.rememberKey;
+      document.getElementById('aiBaseUrlWrap').style.display = prov === 'custom' ? '' : 'none';
+      document.getElementById('aiProviderBadge').textContent = AI_PROVIDERS[prov]?.label || prov;
+    }
+    function persistAiSettingsFromUi() {
+      const s = getAiSettingsFromUi();
+      saveAiCfg(s);
+      document.getElementById('aiProviderBadge').textContent = AI_PROVIDERS[s.provider]?.label || s.provider;
+      document.getElementById('aiBaseUrlWrap').style.display = s.provider === 'custom' ? '' : 'none';
+    }
+
+    function aiAppendMsg(role, text, extraClass) {
+      const box = document.getElementById('aiMessages');
+      const div = document.createElement('div');
+      div.className = 'ai-msg ' + (extraClass || role);
+      const roleLabel = role === 'tool' ? 'Tool' : role === 'assistant' ? 'AI' : role === 'user' ? 'You' : 'System';
+      div.innerHTML = `<div class="role">${roleLabel}</div>`;
+      const body = document.createElement('div');
+      body.textContent = text;
+      div.appendChild(body);
+      box.appendChild(div);
+      box.scrollTop = box.scrollHeight;
+      return div;
+    }
+
+    function parseA1(addr) {
+      const m = String(addr).trim().match(/^([A-Za-z]+)(\d+)$/);
+      if (!m) return null;
+      let col = 0;
+      const letters = m[1].toUpperCase();
+      for (let i = 0; i < letters.length; i++) col = col * 26 + (letters.charCodeAt(i) - 64);
+      return { colIdx: col - 1, rowIdx: parseInt(m[2], 10) - 1 };
+    }
+
+    function aiExecTool(name, args) {
+      args = args || {};
+      try {
+        switch (name) {
+          case 'list_tables': {
+            const tables = getTables();
+            const out = tables.map(t => {
+              let n = 0;
+              try { n = db.exec(`SELECT COUNT(*) FROM ${quoteIdent(t)}`)[0].values[0][0]; } catch (_) {}
+              return { table: t, rows: n };
+            });
+            return JSON.stringify({ tables: out }, null, 2);
+          }
+          case 'describe_table': {
+            const t = args.table;
+            if (!t) return JSON.stringify({ error: 'table required' });
+            const info = getTableInfo(t);
+            return JSON.stringify({
+              table: t,
+              columns: info.columns.map(c => ({ name: c.name, type: c.type, pk: !!c.pk, notnull: !!c.notnull }))
+            }, null, 2);
+          }
+          case 'run_sql': {
+            const sql = (args.sql || '').trim();
+            if (!sql) return JSON.stringify({ error: 'sql required' });
+            const results = withEvaluatedTables(sql, (q) => db.exec(q));
+            refreshTableList();
+            if (currentTable && getTables().includes(currentTable)) renderGrid();
+            else if (currentTable && !getTables().includes(currentTable)) {
+              currentTable = null; renderGrid();
+            }
+            if (!results.length) return JSON.stringify({ ok: true, message: 'Executed (no result set)' });
+            const r = results[0];
+            lastQueryResult = r;
+            const saveBtn = document.getElementById('btnSaveAsTable');
+            if (saveBtn) saveBtn.disabled = false;
+            const chartBtn = document.getElementById('btnChart');
+            if (chartBtn) chartBtn.disabled = !(r.values && r.values.length);
+            // Mirror into SQL results panel
+            try {
+              const resultsEl = document.getElementById('sqlResults');
+              if (resultsEl) {
+                let html = '<table><thead><tr>';
+                r.columns.forEach(c => { html += `<th>${escapeHtml(c)}</th>`; });
+                html += '</tr></thead><tbody>';
+                r.values.slice(0, 100).forEach(row => {
+                  html += '<tr>';
+                  row.forEach(v => {
+                    html += `<td>${v === null ? '<i style="opacity:.5">NULL</i>' : escapeHtml(String(v))}</td>`;
+                  });
+                  html += '</tr>';
+                });
+                html += '</tbody></table>';
+                resultsEl.innerHTML = html;
+              }
+            } catch (_) {}
+            return JSON.stringify({
+              columns: r.columns,
+              rowCount: r.values.length,
+              rows: r.values.slice(0, 80)
+            }, null, 2);
+          }
+          case 'get_table_preview': {
+            const t = args.table;
+            const limit = Math.min(200, Math.max(1, parseInt(args.limit, 10) || 50));
+            if (!t) return JSON.stringify({ error: 'table required' });
+            const r = db.exec(`SELECT * FROM ${quoteIdent(t)} LIMIT ${limit}`);
+            if (!r.length) return JSON.stringify({ columns: [], rows: [] });
+            return JSON.stringify({ columns: r[0].columns, rows: r[0].values }, null, 2);
+          }
+          case 'select_table': {
+            if (!args.table) return JSON.stringify({ error: 'table required' });
+            if (!getTables().includes(args.table)) return JSON.stringify({ error: 'table not found' });
+            selectTable(args.table);
+            return JSON.stringify({ ok: true, selected: args.table });
+          }
+          case 'create_table': {
+            if (!args.name || !Array.isArray(args.columns) || !args.columns.length) {
+              return JSON.stringify({ error: 'name and columns required' });
+            }
+            createTable(args.name, args.columns.map(c => ({ name: c.name, type: c.type || 'TEXT' })));
+            return JSON.stringify({ ok: true, table: args.name });
+          }
+          case 'drop_table': {
+            if (!args.table) return JSON.stringify({ error: 'table required' });
+            db.run(`DROP TABLE IF EXISTS ${quoteIdent(args.table)}`);
+            if (currentTable === args.table) { currentTable = null; renderGrid(); }
+            refreshTableList();
+            return JSON.stringify({ ok: true, dropped: args.table });
+          }
+          case 'set_cell': {
+            const table = args.table || currentTable;
+            if (!table) return JSON.stringify({ error: 'no table (pass table or select one)' });
+            const a1 = parseA1(args.cell);
+            if (!a1) return JSON.stringify({ error: 'invalid cell address' });
+            const info = getTableInfo(table);
+            if (a1.colIdx < 0 || a1.colIdx >= info.columns.length) {
+              return JSON.stringify({ error: 'column out of range', cols: info.columns.length });
+            }
+            // Ensure enough rows
+            while (info.rows.length <= a1.rowIdx) {
+              const cols = info.columns;
+              const placeholders = cols.map(() => '?').join(',');
+              db.run(`INSERT INTO ${quoteIdent(table)} VALUES (${placeholders})`, cols.map(() => null));
+              info.rows = getTableInfo(table).rows;
+            }
+            const row = getTableInfo(table).rows[a1.rowIdx];
+            const rowid = row[0];
+            const colName = info.columns[a1.colIdx].name;
+            let store = args.value;
+            if (store === null || store === undefined) store = null;
+            else if (!isComputed(String(store)) && store !== '' && !isNaN(store) && String(store).trim() !== '') {
+              store = Number(store);
+            } else if (store === '') store = null;
+            else store = String(store);
+            db.run(`UPDATE ${quoteIdent(table)} SET ${quoteIdent(colName)} = ? WHERE rowid = ?`, [store, rowid]);
+            if (currentTable === table) renderGrid();
+            else selectTable(table);
+            return JSON.stringify({ ok: true, table, cell: args.cell, value: args.value });
+          }
+          case 'add_rows': {
+            const table = args.table || currentTable;
+            if (!table) return JSON.stringify({ error: 'table required' });
+            const n = Math.min(100, Math.max(1, parseInt(args.count, 10) || 1));
+            const was = currentTable;
+            if (currentTable !== table) selectTable(table);
+            for (let i = 0; i < n; i++) addRow();
+            if (was && was !== table) selectTable(was);
+            return JSON.stringify({ ok: true, added: n, table });
+          }
+          case 'get_schema_summary': {
+            const tables = getTables();
+            const summary = tables.map(t => {
+              const info = getTableInfo(t);
+              let n = 0;
+              try { n = db.exec(`SELECT COUNT(*) FROM ${quoteIdent(t)}`)[0].values[0][0]; } catch (_) {}
+              return {
+                table: t,
+                rows: n,
+                columns: info.columns.map(c => c.name + (c.type ? ':' + c.type : ''))
+              };
+            });
+            return JSON.stringify({ tables: summary, currentTable }, null, 2);
+          }
+          default:
+            return JSON.stringify({ error: 'unknown tool: ' + name });
+        }
+      } catch (e) {
+        return JSON.stringify({ error: e.message || String(e) });
+      }
+    }
+
+    function openaiToolsSpec() {
+      return AI_TOOLS.map(t => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters
+        }
+      }));
+    }
+    function anthropicToolsSpec() {
+      return AI_TOOLS.map(t => ({
+        name: t.name,
+        description: t.description,
+        input_schema: t.parameters
+      }));
+    }
+    function googleToolsSpec() {
+      return [{
+        functionDeclarations: AI_TOOLS.map(t => ({
+          name: t.name,
+          description: t.description,
+          parameters: t.parameters
+        }))
+      }];
+    }
+
+    async function aiCallProvider(messages, signal) {
+      const s = getAiSettingsFromUi();
+      if (!s.apiKey) throw new Error('API key required');
+      const meta = AI_PROVIDERS[s.provider] || AI_PROVIDERS.openai;
+      const base = (s.provider === 'custom' ? s.baseUrl : meta.baseUrl).replace(/\/$/, '');
+      if (!base) throw new Error('Base URL required for custom provider');
+
+      if (meta.kind === 'anthropic') {
+        const res = await fetch(base + '/messages', {
+          method: 'POST',
+          signal,
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': s.apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify({
+            model: s.model,
+            max_tokens: 4096,
+            system: AI_SYSTEM,
+            tools: anthropicToolsSpec(),
+            messages: messages.filter(m => m.role !== 'system').map(m => {
+              if (m.role === 'tool') {
+                return {
+                  role: 'user',
+                  content: [{ type: 'tool_result', tool_use_id: m.tool_call_id, content: m.content }]
+                };
+              }
+              if (m.role === 'assistant' && m.tool_calls) {
+                return {
+                  role: 'assistant',
+                  content: [
+                    ...(m.content ? [{ type: 'text', text: m.content }] : []),
+                    ...m.tool_calls.map(tc => ({
+                      type: 'tool_use',
+                      id: tc.id,
+                      name: tc.function.name,
+                      input: JSON.parse(tc.function.arguments || '{}')
+                    }))
+                  ]
+                };
+              }
+              return { role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content || '' };
+            })
+          })
+        });
+        if (!res.ok) throw new Error('Anthropic HTTP ' + res.status + ': ' + (await res.text()).slice(0, 400));
+        const data = await res.json();
+        const textParts = (data.content || []).filter(c => c.type === 'text').map(c => c.text).join('\n');
+        const toolUses = (data.content || []).filter(c => c.type === 'tool_use');
+        return {
+          content: textParts || null,
+          tool_calls: toolUses.map(tu => ({
+            id: tu.id,
+            function: { name: tu.name, arguments: JSON.stringify(tu.input || {}) }
+          })),
+          stop: data.stop_reason
+        };
+      }
+
+      if (meta.kind === 'google') {
+        // Convert messages to Gemini format
+        const contents = [];
+        for (const m of messages) {
+          if (m.role === 'system') continue;
+          if (m.role === 'tool') {
+            contents.push({
+              role: 'user',
+              parts: [{
+                functionResponse: {
+                  name: m.name || 'tool',
+                  response: { result: m.content }
+                }
+              }]
+            });
+            continue;
+          }
+          if (m.role === 'assistant' && m.tool_calls) {
+            contents.push({
+              role: 'model',
+              parts: [
+                ...(m.content ? [{ text: m.content }] : []),
+                ...m.tool_calls.map(tc => ({
+                  functionCall: {
+                    name: tc.function.name,
+                    args: JSON.parse(tc.function.arguments || '{}')
+                  }
+                }))
+              ]
+            });
+            continue;
+          }
+          contents.push({
+            role: m.role === 'assistant' ? 'model' : 'user',
+            parts: [{ text: m.content || '' }]
+          });
+        }
+        const url = `${base}/models/${encodeURIComponent(s.model)}:generateContent?key=${encodeURIComponent(s.apiKey)}`;
+        const res = await fetch(url, {
+          method: 'POST',
+          signal,
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            systemInstruction: { parts: [{ text: AI_SYSTEM }] },
+            tools: googleToolsSpec(),
+            contents
+          })
+        });
+        if (!res.ok) throw new Error('Google HTTP ' + res.status + ': ' + (await res.text()).slice(0, 400));
+        const data = await res.json();
+        const parts = data.candidates?.[0]?.content?.parts || [];
+        const text = parts.filter(p => p.text).map(p => p.text).join('\n');
+        const fcs = parts.filter(p => p.functionCall);
+        return {
+          content: text || null,
+          tool_calls: fcs.map((fc, i) => ({
+            id: 'gfc_' + i + '_' + Date.now(),
+            function: { name: fc.functionCall.name, arguments: JSON.stringify(fc.functionCall.args || {}) }
+          }))
+        };
+      }
+
+      // OpenAI-compatible (OpenAI, xAI, OpenRouter, custom)
+      const body = {
+        model: s.model,
+        messages: [
+          { role: 'system', content: AI_SYSTEM },
+          ...messages.filter(m => m.role !== 'system')
+        ],
+        tools: openaiToolsSpec(),
+        tool_choice: 'auto'
+      };
+      const headers = {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer ' + s.apiKey
+      };
+      if (s.provider === 'openrouter') {
+        headers['HTTP-Referer'] = location.origin || 'https://sqlsheets.local';
+        headers['X-Title'] = 'SQLSheet';
+      }
+      const res = await fetch(base + '/chat/completions', {
+        method: 'POST',
+        signal,
+        headers,
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) throw new Error((s.provider || 'API') + ' HTTP ' + res.status + ': ' + (await res.text()).slice(0, 400));
+      const data = await res.json();
+      const msg = data.choices?.[0]?.message || {};
+      return {
+        content: msg.content || null,
+        tool_calls: msg.tool_calls || null
+      };
+    }
+
+    async function aiRunAgent(userText) {
+      if (aiBusy) return;
+      const s = getAiSettingsFromUi();
+      if (!s.apiKey) {
+        aiAppendMsg('system', 'Add an API key in the left panel first.');
+        return;
+      }
+      persistAiSettingsFromUi();
+      aiBusy = true;
+      document.getElementById('btnAiSend').disabled = true;
+      document.getElementById('btnAiStop').style.display = '';
+      document.getElementById('aiInput').classList.add('ai-busy');
+      aiAbort = new AbortController();
+
+      aiAppendMsg('user', userText);
+      aiChatHistory.push({ role: 'user', content: userText });
+
+      try {
+        let rounds = 0;
+        while (rounds < 12) {
+          rounds++;
+          const reply = await aiCallProvider(aiChatHistory, aiAbort.signal);
+          if (reply.content) {
+            aiAppendMsg('assistant', reply.content);
+          }
+          if (reply.tool_calls && reply.tool_calls.length) {
+            aiChatHistory.push({
+              role: 'assistant',
+              content: reply.content || '',
+              tool_calls: reply.tool_calls
+            });
+            for (const tc of reply.tool_calls) {
+              const fn = tc.function?.name || tc.name;
+              let args = {};
+              try { args = JSON.parse(tc.function?.arguments || '{}'); } catch (_) {}
+              aiAppendMsg('tool', `→ ${fn}(${JSON.stringify(args)})`, 'tool');
+              const result = aiExecTool(fn, args);
+              const short = result.length > 2500 ? result.slice(0, 2500) + '\n…(truncated)' : result;
+              aiAppendMsg('tool', short, 'tool');
+              aiChatHistory.push({
+                role: 'tool',
+                tool_call_id: tc.id,
+                name: fn,
+                content: result
+              });
+            }
+            continue; // another model turn with tool results
+          }
+          if (reply.content) {
+            aiChatHistory.push({ role: 'assistant', content: reply.content });
+          }
+          break;
+        }
+      } catch (e) {
+        if (e.name === 'AbortError') aiAppendMsg('system', 'Stopped.');
+        else aiAppendMsg('system', 'Error: ' + (e.message || String(e)));
+      } finally {
+        aiBusy = false;
+        aiAbort = null;
+        document.getElementById('btnAiSend').disabled = false;
+        document.getElementById('btnAiStop').style.display = 'none';
+        document.getElementById('aiInput').classList.remove('ai-busy');
+      }
+    }
+
+    // AI UI wiring
+    applyAiSettingsToUi();
+    ['aiProvider', 'aiModel', 'aiApiKey', 'aiBaseUrl', 'aiRememberKey'].forEach(id => {
+      const el = document.getElementById(id);
+      if (!el) return;
+      el.addEventListener('change', () => {
+        if (id === 'aiProvider') {
+          const p = document.getElementById('aiProvider').value;
+          const m = document.getElementById('aiModel');
+          if (!m.value || Object.values(AI_PROVIDERS).some(x => x.defaultModel === m.value)) {
+            m.value = AI_PROVIDERS[p].defaultModel;
+          }
+        }
+        persistAiSettingsFromUi();
+      });
+    });
+    document.getElementById('aiToggle').onclick = (e) => {
+      if (e.target.closest('button')) return;
+      aiCollapsed = !aiCollapsed;
+      const panel = document.getElementById('aiPanel');
+      panel.classList.toggle('collapsed', aiCollapsed);
+      document.getElementById('aiBody').style.display = aiCollapsed ? 'none' : 'flex';
+      document.getElementById('aiToggleIcon').textContent = aiCollapsed ? '▲' : '▼';
+    };
+    document.getElementById('btnAiClear').onclick = (e) => {
+      e.stopPropagation();
+      aiChatHistory = [];
+      document.getElementById('aiMessages').innerHTML =
+        '<div class="ai-msg system"><div class="role">System</div>Chat cleared. Provider settings kept.</div>';
+    };
+    document.getElementById('btnAiSend').onclick = () => {
+      const ta = document.getElementById('aiInput');
+      const text = ta.value.trim();
+      if (!text) return;
+      ta.value = '';
+      aiRunAgent(text);
+    };
+    document.getElementById('btnAiStop').onclick = () => {
+      if (aiAbort) aiAbort.abort();
+    };
+    document.getElementById('aiInput').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        document.getElementById('btnAiSend').click();
+      }
+    });
 
     init();
   </script>
