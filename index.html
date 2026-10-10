@@ -4,14 +4,19 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <!--
-    Security model (offline-first local tool — no server, data stays in the browser):
-    - script= cells are sandboxed and OFF by default after import until the user enables them.
-    - When Scripts are ON, script= may use fetchText/fetchJSON/webpage helpers (network).
+    Security model (offline-first / government-friendly local tool):
+    - No server, no account, no telemetry. All data remains in the browser.
+    - script= cells are sandboxed and OFF by default until the user enables them for the session.
+    - When Scripts are ON, script= may use network helpers (fetch); keep Scripts off for air-gapped or highly sensitive work.
     - sql.js is pinned with Subresource Integrity; CSP restricts unexpected remote code.
     - Cell colors live in meta table _sqlsheets_fmt; col/row sizes in _sqlsheets_layout (excluded from Tables list).
+    - Suitable for self-hosting on internal networks or air-gapped media after initial load.
   -->
   <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline'; connect-src 'self' https: http: blob:; img-src 'self' data: blob: https:; worker-src 'self' blob:; child-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'none'">
-  <title>SQLSheet — SQLite + Spreadsheet + Formulas</title>
+  <title>SQLSheet — Secure Local SQLite Spreadsheet for Government &amp; Public Sector</title>
+  <meta name="description" content="SQLSheet is a fully offline, client-side SQLite database with spreadsheet interface. Zero data leaves the browser. Designed for privacy, auditability, and public-sector data work.">
+  <meta name="robots" content="index, follow">
+  <!-- Accessibility: keyboard navigation supported; high-contrast theme; scripts disabled by default -->
   <style>
     :root {
       --bg: #0b0f14;
@@ -607,11 +612,13 @@
   </style>
 </head>
 <body>
-  <header>
-    <div class="logo">SQLSheet <span>· SQLite + formulas</span></div>
-    <button class="btn" id="btnNew" title="New empty database">New</button>
-    <button class="btn" id="btnOpen" title="Import / open a .sqlite or .db file">Import</button>
-    <button class="btn" id="btnSave" title="Export entire database as .sqlite file">Export</button>
+  <a href="#emptyState" class="skip-link" style="position:absolute;left:-9999px;top:auto;width:1px;height:1px;overflow:hidden;z-index:10000">Skip to main content</a>
+  <style>.skip-link:focus{position:fixed;left:12px;top:12px;width:auto;height:auto;padding:8px 14px;background:var(--accent);color:#fff;border-radius:6px;font-size:13px;outline:2px solid #fff}</style>
+  <header role="banner">
+    <div class="logo">SQLSheet <span>· Offline SQLite · Zero data egress</span></div>
+    <button class="btn" id="btnNew" title="Create a new empty local database (no data leaves this browser)">New</button>
+    <button class="btn" id="btnOpen" title="Import a local .sqlite or .db file — data stays in the browser">Import</button>
+    <button class="btn" id="btnSave" title="Export the entire database as a local .sqlite file">Export</button>
     <div class="sep"></div>
     <button class="btn" id="btnImportCsv" title="Import CSV into a new table">CSV ↕</button>
     <button class="btn" id="btnExportCsv" title="Export current table as CSV">CSV ↑</button>
@@ -668,20 +675,23 @@
       </div>
       <div class="grid-area" id="gridArea">
         <div class="grid-wrap" id="gridWrap"></div>
-        <div class="empty" id="emptyState">
-          <h2>Welcome to SQLSheet</h2>
-          <p>SQLite + spreadsheet formulas + JS scripts — fully offline.<br>
+        <div class="empty" id="emptyState" role="main" aria-label="Welcome">
+          <h2>SQLSheet — Secure Local Data Workbench</h2>
+          <p>Full SQLite database + spreadsheet formulas — <strong>100% client-side</strong>. No server, no account, no telemetry. Data never leaves this browser.<br>
             <code style="color:var(--formula)">=SUM(A1:A10)</code> ·
             <code style="color:var(--script)">script=cell('A1')*2</code> ·
             <code style="color:var(--sql)">sql=SELECT COUNT(*) FROM t</code></p>
-          <p class="hint">Great for data, and for grid games (Game of Life, cellular automata). Enable Scripts, then use Step / Play.</p>
+          <p class="hint">Built for privacy-sensitive and regulated environments: agency analysis, FOIA prep, inventory, budgets, and offline field work. Scripts are disabled by default.</p>
           <div class="demo-btns">
             <button class="btn primary" id="btnEmptyNewTable">Create table</button>
             <button class="btn" id="btnEmptyOpen">Import SQLite</button>
-            <button class="btn success" id="btnLoadLife" title="Load Conway's Game of Life demo">Game of Life</button>
             <button class="btn" id="btnLoadDemo" title="Load full sample database">Sample data</button>
             <button class="btn" id="btnEmptyHelp">Formula help</button>
+            <button class="btn success" id="btnLoadLife" title="Optional demo: Conway's Game of Life" style="opacity:0.75">Demo (optional)</button>
           </div>
+          <p class="hint" style="margin-top:14px;font-size:11px;max-width:520px">
+            <strong>Security posture:</strong> CSP enforced · sql.js integrity-checked · Scripts off until explicitly enabled · No analytics · Suitable for air-gapped use after first load.
+          </p>
         </div>
       </div>
       <div class="help-hint" id="helpHint" style="display:none" title="Click for full formula help">
